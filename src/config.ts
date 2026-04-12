@@ -12,11 +12,12 @@ export interface WorkspaceConfig {
 export interface ConsoleConfig {
   workspaces: WorkspaceConfig[];
   port: number;
-  demoMode: boolean;
+  demoOnly: boolean;
 }
 
 const CONFIG_PATH = join(homedir(), ".synthesis", "console.yaml");
 const DEFAULT_PORT = 5555;
+const DEMO_WORKSPACE_NAME = "demo";
 
 function expandTilde(p: string): string {
   if (p.startsWith("~/")) {
@@ -55,27 +56,25 @@ function autoDetectWorkspaces(): WorkspaceConfig[] {
   return workspaces;
 }
 
-function loadDemoConfig(): ConsoleConfig {
-  // Resolve demo directory relative to the project root
-  // import.meta.dir is src/, dirname gives the project root
+function getDemoWorkspace(): WorkspaceConfig {
   const projectRoot = dirname(import.meta.dir);
-  const demoRoot = join(projectRoot, "demo");
   return {
-    workspaces: [
-      {
-        name: "demo",
-        root: demoRoot,
-        knowledge: "ai-knowledge-demo",
-      },
-    ],
-    port: DEFAULT_PORT,
-    demoMode: true,
+    name: DEMO_WORKSPACE_NAME,
+    root: join(projectRoot, "demo"),
+    knowledge: "ai-knowledge-demo",
   };
 }
 
 export function loadConfig(options?: { demo?: boolean }): ConsoleConfig {
+  const demoWs = getDemoWorkspace();
+
+  // --demo flag: demo workspace only, no user data
   if (options?.demo) {
-    return loadDemoConfig();
+    return {
+      workspaces: [demoWs],
+      port: DEFAULT_PORT,
+      demoOnly: true,
+    };
   }
 
   if (existsSync(CONFIG_PATH)) {
@@ -94,10 +93,13 @@ export function loadConfig(options?: { demo?: boolean }): ConsoleConfig {
         }
       }
 
+      // Always include demo workspace alongside real workspaces
+      workspaces.push(demoWs);
+
       return {
         workspaces,
         port: (parsed.port as number) || DEFAULT_PORT,
-        demoMode: false,
+        demoOnly: false,
       };
     } catch (err) {
       console.error(
@@ -110,13 +112,18 @@ export function loadConfig(options?: { demo?: boolean }): ConsoleConfig {
   // Auto-detect workspaces
   const workspaces = autoDetectWorkspaces();
   if (workspaces.length > 0) {
-    return { workspaces, port: DEFAULT_PORT, demoMode: false };
+    workspaces.push(demoWs);
+    return { workspaces, port: DEFAULT_PORT, demoOnly: false };
   }
 
-  // No config, no auto-detected workspaces: demo fallback
-  console.log("  No workspaces found. Starting in demo mode.");
-  console.log("  Create ~/.synthesis/console.yaml to use with your own data.\n");
-  return loadDemoConfig();
+  // No config, no auto-detected workspaces: demo only
+  console.log("  No workspaces found. Starting with demo workspace only.");
+  console.log("  Create ~/.synthesis/console.yaml to add your own data.\n");
+  return { workspaces: [demoWs], port: DEFAULT_PORT, demoOnly: true };
+}
+
+export function isDemoWorkspace(ws: WorkspaceConfig): boolean {
+  return ws.name === DEMO_WORKSPACE_NAME;
 }
 
 export function getKnowledgePath(ws: WorkspaceConfig): string {

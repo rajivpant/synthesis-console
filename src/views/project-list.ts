@@ -26,9 +26,9 @@ export function projectListView(opts: {
   allTags: Map<string, number>;
   currentFilters: { status?: string; tag?: string; client?: string; q?: string };
   workspace: string;
-  demoMode?: boolean;
 }): string {
-  const { projects, allTags, currentFilters, workspace, demoMode } = opts;
+  const { projects, allTags, currentFilters, workspace } = opts;
+  const isDemo = workspace === "demo";
 
   const statusCounts: Record<string, number> = {};
   for (const p of projects) {
@@ -50,7 +50,7 @@ export function projectListView(opts: {
     });
   }
 
-  const demoBanner = demoMode
+  const demoBanner = isDemo
     ? `<div class="demo-banner" role="status">
         You're viewing a demo workspace with sample projects. This data illustrates the conventions that Synthesis Console renders.
         <a href="https://github.com/rajivpant/synthesis-console">Learn more</a>

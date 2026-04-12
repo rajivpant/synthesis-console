@@ -75,7 +75,7 @@ if (port !== preferredPort) {
   console.log(`  Port ${preferredPort} is in use, using ${port} instead.\n`);
 }
 
-const modeLabel = config.demoMode ? " [DEMO]" : "";
+const modeLabel = config.demoOnly ? " [DEMO ONLY]" : "";
 
 console.log(`  Synthesis Console v${pkg.version}${modeLabel}
   ========================

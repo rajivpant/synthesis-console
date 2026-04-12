@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { existsSync, readdirSync } from "fs";
-import type { ConsoleConfig } from "../config.js";
+import type { ConsoleConfig, WorkspaceConfig } from "../config.js";
 import { getPlansPath } from "../config.js";
 import { readAndRenderPlanMarkdown } from "../parsers/markdown.js";
 import { layout } from "../views/layout.js";
@@ -21,20 +21,16 @@ function parsePlanFilename(filename: string): PlanEntry | null {
 export function planRoutes(config: ConsoleConfig) {
   const app = new Hono();
 
-  // Daily plans are person-scoped — always read from the primary (first) workspace,
-  // regardless of which workspace is selected in the project browser.
-  const primaryWs = config.workspaces[0];
-
-  function resolveWorkspace(wsName?: string) {
+  function resolveWorkspace(wsName?: string): WorkspaceConfig {
     if (wsName) {
       const ws = config.workspaces.find((w) => w.name === wsName);
       if (ws) return ws;
     }
-    return primaryWs;
+    return config.workspaces[0];
   }
 
-  function loadPlans(): PlanEntry[] {
-    const plansDir = getPlansPath(primaryWs);
+  function loadPlans(ws: WorkspaceConfig): PlanEntry[] {
+    const plansDir = getPlansPath(ws);
     if (!existsSync(plansDir)) return [];
 
     const files = readdirSync(plansDir)
@@ -53,7 +49,7 @@ export function planRoutes(config: ConsoleConfig) {
   // Plan list with calendar
   app.get("/plans", (c) => {
     const ws = resolveWorkspace(c.req.query("ws"));
-    const plans = loadPlans();
+    const plans = loadPlans(ws);
 
     const content = planListView({
       plans,
@@ -67,7 +63,6 @@ export function planRoutes(config: ConsoleConfig) {
         workspaces: config.workspaces,
         currentWorkspace: ws.name,
         currentPath: "/plans",
-        demoMode: config.demoMode,
       })
     );
   });
@@ -85,13 +80,12 @@ export function planRoutes(config: ConsoleConfig) {
           workspaces: config.workspaces,
           currentWorkspace: ws.name,
           currentPath: "/plans",
-          demoMode: config.demoMode,
         }),
         404
       );
     }
 
-    const plansDir = getPlansPath(primaryWs);
+    const plansDir = getPlansPath(ws);
     const filePath = `${plansDir}/${date}.md`;
     const contentHtml = readAndRenderPlanMarkdown(filePath);
 
@@ -103,14 +97,13 @@ export function planRoutes(config: ConsoleConfig) {
           workspaces: config.workspaces,
           currentWorkspace: ws.name,
           currentPath: "/plans",
-          demoMode: config.demoMode,
         }),
         404
       );
     }
 
     // Find prev/next plans for navigation
-    const allPlans = loadPlans();
+    const allPlans = loadPlans(ws);
     const sortedAsc = [...allPlans].sort((a, b) => a.date.localeCompare(b.date));
     const currentIdx = sortedAsc.findIndex((p) => p.date === date);
     const prevDate = currentIdx > 0 ? sortedAsc[currentIdx - 1].date : undefined;
@@ -131,7 +124,6 @@ export function planRoutes(config: ConsoleConfig) {
         workspaces: config.workspaces,
         currentWorkspace: ws.name,
         currentPath: `/plans/${date}`,
-        demoMode: config.demoMode,
       })
     );
   });

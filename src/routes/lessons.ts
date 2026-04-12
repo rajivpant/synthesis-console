@@ -61,7 +61,6 @@ export function lessonRoutes(config: ConsoleConfig) {
         workspaces: config.workspaces,
         currentWorkspace: ws.name,
         currentPath: "/lessons",
-        demoMode: config.demoMode,
       })
     );
   });
@@ -79,8 +78,7 @@ export function lessonRoutes(config: ConsoleConfig) {
           workspaces: config.workspaces,
           currentWorkspace: ws.name,
           currentPath: "/lessons",
-          demoMode: config.demoMode,
-        }),
+          }),
         404
       );
     }
@@ -97,8 +95,7 @@ export function lessonRoutes(config: ConsoleConfig) {
           workspaces: config.workspaces,
           currentWorkspace: ws.name,
           currentPath: "/lessons",
-          demoMode: config.demoMode,
-        }),
+          }),
         404
       );
     }
@@ -119,7 +116,6 @@ export function lessonRoutes(config: ConsoleConfig) {
         workspaces: config.workspaces,
         currentWorkspace: ws.name,
         currentPath: `/lessons/${slug}`,
-        demoMode: config.demoMode,
       })
     );
   });

@@ -2,14 +2,17 @@ import type { WorkspaceConfig } from "../config.js";
 import { escapeHtml, escapeAttr } from "../utils.js";
 import pkg from "../../package.json";
 
+const DEMO_WORKSPACE_NAME = "demo";
+
 export function layout(opts: {
   title: string;
   content: string;
   workspaces: WorkspaceConfig[];
   currentWorkspace: string;
   currentPath?: string;
-  demoMode?: boolean;
 }): string {
+  const isDemo = opts.currentWorkspace === DEMO_WORKSPACE_NAME;
+
   const wsSelector =
     opts.workspaces.length > 1
       ? `<li>
@@ -25,7 +28,7 @@ export function layout(opts: {
       : "";
 
   const nav = buildNav(opts.currentPath || "", opts.currentWorkspace);
-  const demoBadge = opts.demoMode
+  const demoBadge = isDemo
     ? '<span class="badge badge-demo">DEMO</span>'
     : "";
 
@@ -54,7 +57,7 @@ export function layout(opts: {
     ${opts.content}
   </main>
   <footer class="container">
-    <small>Synthesis Console v${pkg.version} — local-first project dashboard for synthesis engineering</small>
+    <small>Synthesis Console v${pkg.version} — local-first tooling for synthesis engineering</small>
   </footer>
   <script>
     function switchWorkspace(ws) {

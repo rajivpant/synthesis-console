@@ -58,7 +58,6 @@ export function projectRoutes(config: ConsoleConfig) {
         workspaces: config.workspaces,
         currentWorkspace: ws.name,
         currentPath: "/projects",
-        demoMode: config.demoMode,
       })
     );
   });
@@ -76,8 +75,7 @@ export function projectRoutes(config: ConsoleConfig) {
           workspaces: config.workspaces,
           currentWorkspace: ws.name,
           currentPath: "/projects",
-          demoMode: config.demoMode,
-        }),
+          }),
         404
       );
     }
@@ -93,8 +91,7 @@ export function projectRoutes(config: ConsoleConfig) {
           workspaces: config.workspaces,
           currentWorkspace: ws.name,
           currentPath: "/projects",
-          demoMode: config.demoMode,
-        }),
+          }),
         404
       );
     }
@@ -132,7 +129,6 @@ export function projectRoutes(config: ConsoleConfig) {
         workspaces: config.workspaces,
         currentWorkspace: ws.name,
         currentPath: `/projects/${projectId}`,
-        demoMode: config.demoMode,
       })
     );
   });
@@ -151,8 +147,7 @@ export function projectRoutes(config: ConsoleConfig) {
           workspaces: config.workspaces,
           currentWorkspace: ws.name,
           currentPath: "/projects",
-          demoMode: config.demoMode,
-        }),
+          }),
         404
       );
     }
@@ -168,8 +163,7 @@ export function projectRoutes(config: ConsoleConfig) {
           workspaces: config.workspaces,
           currentWorkspace: ws.name,
           currentPath: "/projects",
-          demoMode: config.demoMode,
-        }),
+          }),
         404
       );
     }
@@ -189,8 +183,7 @@ export function projectRoutes(config: ConsoleConfig) {
           workspaces: config.workspaces,
           currentWorkspace: ws.name,
           currentPath: `/projects/${projectId}`,
-          demoMode: config.demoMode,
-        }),
+          }),
         404
       );
     }
@@ -210,7 +203,6 @@ export function projectRoutes(config: ConsoleConfig) {
         workspaces: config.workspaces,
         currentWorkspace: ws.name,
         currentPath: `/projects/${projectId}/sessions`,
-        demoMode: config.demoMode,
       })
     );
   });
