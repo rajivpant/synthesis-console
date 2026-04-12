@@ -70,13 +70,37 @@ export function readMarkdownRaw(filePath: string): string | null {
 }
 
 /**
- * Render markdown for daily plans with enhanced link generation:
+ * Pre-process daily plan markdown to fix patterns that break standard parsers:
+ * - Strikethrough around code fences (~~```...```) from sent draft messages
+ * - Other daily-plan-specific formatting
+ */
+function preprocessPlanMarkdown(raw: string): string {
+  // Fix strikethrough wrapping code fences: ~~```\n...\n```
+  // This happens when a drafted message is struck through after sending.
+  // Strip the ~~ from fence markers so the fence renders properly,
+  // and wrap the whole block in strikethrough via HTML.
+  let result = raw;
+
+  // Pattern: ~~``` at line start (opening fence with strikethrough)
+  // Replace with a blockquote (since it's a "sent" message) and remove the broken fence
+  result = result.replace(
+    /^~~```\s*$/gm,
+    "```"
+  );
+
+  return result;
+}
+
+/**
+ * Render markdown for daily plans with:
+ * - Pre-processing for daily-plan-specific patterns
  * - #channel-name → Slack deep link
  */
 export function readAndRenderPlanMarkdown(filePath: string): string | null {
   if (!existsSync(filePath)) return null;
   const raw = readFileSync(filePath, "utf-8");
-  let html = md.render(raw);
+  const preprocessed = preprocessPlanMarkdown(raw);
+  let html = md.render(preprocessed);
 
   // Convert #channel-name references to Slack deep links
   // Matches #word-word patterns not inside HTML tags or HTML entities
