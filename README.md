@@ -1,22 +1,24 @@
 # Synthesis Console
 
-Local-first dashboard for synthesis engineering. Renders your project management YAML and markdown files as browsable, searchable pages in a web browser.
+Local-first, open-source tooling for synthesis engineering. Renders your project management YAML and markdown files as browsable, searchable pages in a web browser.
 
-![Dashboard](screenshots/dashboard.png)
+Read the full story: [Synthesis Console: open-source tooling for synthesis engineering](https://synthesiscoding.org/articles/synthesis-console-open-source-tooling-for-synthesis-engineering/)
+
+![Synthesis Console](screenshots/dashboard.png)
 
 ## What Is This?
 
 If you practice synthesis engineering — managing projects through structured markdown and YAML conventions — you accumulate files: project indexes, working context documents, reference files, session archives, lessons learned. These files are the working memory of your practice. But browsing them means reading raw files in a text editor or asking your AI agent to parse them.
 
-Synthesis Console renders those files as a dashboard. Project list with status badges and tag filtering. Project detail with rendered markdown. Session history. Lessons learned. All from the files you already have, with no import step and no database.
+Synthesis Console renders those files as a browsable console. Project list with status badges and tag filtering. Project detail with rendered markdown. Session history. Lessons learned. All from the files you already have, with no import step and no database.
 
 Synthesis engineering is a discipline for structured human-AI collaboration — like agile or Scrum, but for AI-native workflows. This console is one open-source implementation of the tooling layer. Others can build their own.
 
 ## Screenshots
 
-**Dashboard** — projects grouped by status with color-coded badges, search, and filter toggles:
+**Project list** — grouped by status with color-coded badges, search, and filter toggles:
 
-![Dashboard with status badges and filters](screenshots/dashboard.png)
+![Project list with status badges and filters](screenshots/dashboard.png)
 
 **Status filtering** — click status toggles to show specific groups:
 
