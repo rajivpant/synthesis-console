@@ -4,6 +4,7 @@ import { createServer } from "net";
 import { loadConfig } from "./config.js";
 import { projectRoutes } from "./routes/projects.js";
 import { lessonRoutes } from "./routes/lessons.js";
+import { planRoutes } from "./routes/plans.js";
 import { layout } from "./views/layout.js";
 import pkg from "../package.json";
 
@@ -33,6 +34,7 @@ app.get("/", (c) => {
 // Mount routes
 app.route("/", projectRoutes(config));
 app.route("/", lessonRoutes(config));
+app.route("/", planRoutes(config));
 
 // 404 fallback
 app.notFound((c) => {

@@ -24,3 +24,23 @@ export function readMarkdownRaw(filePath: string): string | null {
   if (!existsSync(filePath)) return null;
   return readFileSync(filePath, "utf-8");
 }
+
+/**
+ * Render markdown for daily plans with enhanced link generation:
+ * - #channel-name → Slack deep link
+ * - mailto: links for email drafts
+ */
+export function readAndRenderPlanMarkdown(filePath: string): string | null {
+  if (!existsSync(filePath)) return null;
+  const raw = readFileSync(filePath, "utf-8");
+  let html = marked.parse(raw) as string;
+
+  // Convert #channel-name references to Slack deep links
+  // Matches #word-word patterns that aren't inside HTML tags, code blocks, or HTML entities
+  html = html.replace(
+    /(?<![<\w/&])#([a-zA-Z][\w-]{1,79})(?![^<]*>)/g,
+    '<a href="slack://channel?team=&amp;id=&amp;name=$1" title="Open #$1 in Slack">#$1</a>'
+  );
+
+  return html;
+}

@@ -70,6 +70,7 @@ export function layout(opts: {
 function buildNav(currentPath: string, ws: string): string {
   const links = [
     { href: `/projects?ws=${ws}`, label: "Projects", match: "/projects" },
+    { href: `/plans?ws=${ws}`, label: "Plans", match: "/plans" },
     { href: `/lessons?ws=${ws}`, label: "Lessons", match: "/lessons" },
   ];
 

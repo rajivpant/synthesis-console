@@ -286,6 +286,91 @@ nav a.active {
   font-weight: 700;
 }
 
+/* ---- Daily Plans ---- */
+.plan-today-bar {
+  margin-bottom: 1.5em;
+}
+
+.today-link {
+  font-weight: 600;
+}
+
+.muted {
+  color: #9ca3af;
+}
+
+.plan-month {
+  margin-bottom: 2em;
+}
+
+.calendar-grid {
+  font-size: 0.9em;
+  table-layout: fixed;
+  width: 100%;
+  max-width: 500px;
+}
+
+.calendar-grid th {
+  text-align: center;
+  font-size: 0.8em;
+  color: #6b7280;
+  padding: 0.3em;
+}
+
+.cal-day {
+  text-align: center;
+  padding: 0.4em;
+  vertical-align: middle;
+}
+
+.cal-empty {
+  background: none;
+}
+
+.cal-has-plan {
+  background: #dbeafe;
+  border-radius: 4px;
+}
+
+.cal-has-plan a {
+  text-decoration: none;
+  font-weight: 600;
+  display: block;
+}
+
+.cal-today {
+  outline: 2px solid #4f46e5;
+  border-radius: 4px;
+}
+
+.plan-nav {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1.5em;
+  padding: 0.5em 0;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.plan-nav a {
+  text-decoration: none;
+  font-size: 0.9em;
+}
+
+/* ---- Plan Content (copy-paste friendly) ---- */
+.plan-content input[type="checkbox"] {
+  margin-right: 0.4em;
+}
+
+.plan-content li {
+  margin-bottom: 0.3em;
+}
+
+.plan-content h2 {
+  border-bottom: 1px solid #e5e7eb;
+  padding-bottom: 0.3em;
+}
+
 /* ---- Footer ---- */
 footer {
   margin-top: 3em;
