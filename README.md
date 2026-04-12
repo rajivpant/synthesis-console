@@ -32,6 +32,14 @@ Synthesis engineering is a discipline for structured human-AI collaboration — 
 
 ![Lessons list](screenshots/lessons.png)
 
+**Daily plans** — calendar navigation with today highlighted, click any date to view:
+
+![Daily plans calendar](screenshots/plans-calendar.png)
+
+**Plan detail** — rendered daily plan with draft message notice and grounding:
+
+![Plan detail with draft notice](screenshots/plan-detail.png)
+
 ## Quick Start
 
 ```bash
@@ -140,6 +148,32 @@ projects:
 **`projects/{id}/sessions/YYYY-MM.md`** — session archives, append-only monthly files.
 
 **`projects/_lessons/YYYY-MM-DD-slug.md`** — cross-project lessons learned.
+
+**`projects/_daily-plans/YYYY-MM-DD.md`** — daily action plans with prioritized tasks, draft messages, and delegation tracking.
+
+## Daily Plans
+
+The daily plan viewer treats you as one person with one plan per day — regardless of how many workspaces, organizations, or roles you have. Your personal workspace holds your daily plans; the other workspaces hold their projects. The same way a GitHub account is one identity across multiple organizations, your daily plan is one view across all your work.
+
+Plans include draft messages with grounding — each draft shows the research behind it (code commits, test results, Slack threads, deployment status). A visible notice reminds you to review and personalize each draft before sending. The tool does the research; the human adds judgment, timing, and voice.
+
+## The Full System
+
+Synthesis Console is the viewing layer. The methodology that produces the files it renders comes from [synthesis skills](https://github.com/rajivpant/synthesis-skills) — a library of open-source agent skills for project management, context lifecycle, daily planning, code review, and more.
+
+To use the complete system:
+
+```bash
+# Install the skills (works with Claude Code, Cursor, Codex CLI, and 40+ other agents)
+npx skills add rajivpant/synthesis-skills --global --all --copy
+```
+
+The skills create and maintain the files. The console renders them. Together they form a complete synthesis engineering workflow.
+
+**Learn more:**
+- [Synthesis Skills: Install Methodology Into Your AI Workflow](https://rajiv.com/blog/2026/03/18/synthesis-skills-install-methodology-into-your-ai-workflow/)
+- [AI-Native Project Management](https://rajiv.com/blog/2025/12/14/ai-native-project-management/)
+- [The Tiered Context Architecture](https://rajiv.com/blog/2026/03/01/tiered-context-architecture/)
 
 ## Security
 
