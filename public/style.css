@@ -357,6 +357,19 @@ nav a.active {
   font-size: 0.9em;
 }
 
+/* ---- Draft Message Notice ---- */
+.draft-notice {
+  background: #fef3c7;
+  border: 1px solid #f59e0b;
+  border-left: 4px solid #f59e0b;
+  border-radius: 4px;
+  padding: 0.8em 1.2em;
+  margin-bottom: 1em;
+  font-size: 0.9em;
+  color: #92400e;
+  line-height: 1.5;
+}
+
 /* ---- Plan Content (copy-paste friendly) ---- */
 .plan-content input[type="checkbox"] {
   margin-right: 0.4em;

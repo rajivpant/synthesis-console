@@ -109,5 +109,18 @@ export function readAndRenderPlanMarkdown(filePath: string): string | null {
     '<a href="slack://channel?team=&amp;id=&amp;name=$1" title="Open #$1 in Slack">#$1</a>'
   );
 
+  // Insert a notice before draft message sections reminding users to review
+  const draftNotice = `<div class="draft-notice" role="note">
+    <strong>Review before sending.</strong> These drafts are starting points, not final messages.
+    Read each one, edit it in your own voice, and add the context only you have.
+    Human-to-human communication deserves human effort.
+  </div>`;
+
+  // Insert before headings that contain draft/unsent language
+  html = html.replace(
+    /(<h2[^>]*>(?:[^<]*(?:Draft|Unsent|Ready to Send)[^<]*)<\/h2>)/i,
+    draftNotice + "\n$1"
+  );
+
   return html;
 }
