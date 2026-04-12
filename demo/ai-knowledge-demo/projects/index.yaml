@@ -1,0 +1,306 @@
+# Demo Project Index
+# Sample data for synthesis-console demo mode.
+# This file illustrates the index.yaml conventions used in synthesis project management.
+
+projects:
+  # ============================================================================
+  # ACTIVE PROJECTS
+  # ============================================================================
+
+  - id: synthesis-console
+    name: "Synthesis Console — Local Dashboard for Project Management"
+    status: active
+    started_date: 2026-04-10
+    description: >
+      Build a local web application that renders markdown files and YAML indexes
+      as browsable, searchable pages in a web browser. The reference open-source
+      implementation of synthesis engineering tooling.
+    tags:
+      - synthesis-engineering
+      - tooling
+      - open-source
+      - infrastructure
+    related:
+      - synthesis-skills-ecosystem
+      - workspace-orchestration
+    last_session: "2026-04-12"
+
+  - id: synthesis-skills-ecosystem
+    name: "Synthesis Skills Ecosystem — Agent-Native Skill Authoring"
+    status: active
+    started_date: 2026-01-15
+    description: >
+      Design, author, and maintain a library of reusable agent skills for
+      synthesis engineering workflows. Public and private skill repos with
+      installation tooling and version management.
+    tags:
+      - synthesis-engineering
+      - tooling
+      - open-source
+      - developer-experience
+    related:
+      - synthesis-console
+      - workspace-orchestration
+    last_session: "2026-04-11"
+
+  - id: content-publishing-pipeline
+    name: "Content Publishing Pipeline — Multi-Site Article Workflow"
+    status: active
+    started_date: 2026-02-01
+    description: >
+      Streamline the workflow for publishing articles across multiple sites
+      with cross-site content aggregation, canonical URL management, and
+      automated deployment.
+    tags:
+      - content
+      - infrastructure
+      - tooling
+    related:
+      - knowledge-base-compiler
+    last_session: "2026-04-08"
+
+  - id: knowledge-base-compiler
+    name: "Knowledge Base Compiler — Source-to-Compiled Optimization"
+    status: active
+    started_date: 2026-03-10
+    description: >
+      Build a compiler that transforms human-edited source files into
+      AI-optimized compiled outputs. Supports instructions, runbooks,
+      datasets, and context definitions.
+    tags:
+      - infrastructure
+      - tooling
+      - architecture
+    related:
+      - content-publishing-pipeline
+    last_session: "2026-04-05"
+
+  # ============================================================================
+  # NEW PROJECTS
+  # ============================================================================
+
+  - id: observability-dashboard
+    name: "Observability Dashboard — Session Metrics and Insights"
+    status: new
+    started_date: 2026-04-11
+    description: >
+      Add metrics tracking to synthesis engineering sessions. Measure session
+      duration, files touched, commits made, and lessons generated to identify
+      productivity patterns over time.
+    tags:
+      - tooling
+      - infrastructure
+      - developer-experience
+    related:
+      - synthesis-console
+
+  - id: team-onboarding-guide
+    name: "Team Onboarding Guide — Synthesis Engineering for New Practitioners"
+    status: new
+    started_date: 2026-04-09
+    description: >
+      Create a structured onboarding guide for engineers new to synthesis
+      engineering. Cover the workspace model, project management conventions,
+      skill system, and daily workflows.
+    tags:
+      - documentation
+      - synthesis-engineering
+
+  # ============================================================================
+  # PAUSED PROJECTS
+  # ============================================================================
+
+  - id: mobile-companion-app
+    name: "Mobile Companion App — Read-Only Project Viewer"
+    status: paused
+    started_date: 2026-03-01
+    description: >
+      A lightweight mobile web app for viewing project status and daily plans
+      on the go. Paused pending completion of the desktop console, which
+      defines the data model and API patterns.
+    tags:
+      - tooling
+      - developer-experience
+    related:
+      - synthesis-console
+    last_session: "2026-03-15"
+
+  - id: voice-interface-prototype
+    name: "Voice Interface Prototype — Spoken Project Updates"
+    status: paused
+    started_date: 2026-02-20
+    description: >
+      Experiment with voice-based interaction for project status updates.
+      Paused while evaluating speech-to-text accuracy for technical terminology.
+    tags:
+      - tooling
+      - developer-experience
+    last_session: "2026-03-05"
+
+  # ============================================================================
+  # ONGOING PROJECTS
+  # ============================================================================
+
+  - id: workspace-orchestration
+    name: "Workspace Orchestration — Multi-Repo Coordination"
+    status: ongoing
+    started_date: 2025-11-20
+    description: >
+      Maintain the unified workspace model where each ai-knowledge repo maps
+      to a person or organization workspace context. CLAUDE.md files serve as
+      workspace orchestration layers.
+    tags:
+      - infrastructure
+      - architecture
+      - synthesis-engineering
+    related:
+      - synthesis-console
+      - synthesis-skills-ecosystem
+    last_session: "2026-04-11"
+
+  - id: daily-planning-system
+    name: "Daily Planning System — Context-Aware Day Management"
+    status: ongoing
+    started_date: 2025-12-01
+    description: >
+      Maintain and evolve the daily action plan system. Markdown-based daily
+      plans with prioritized tasks, draft messages, and context for
+      multi-project switching.
+    tags:
+      - synthesis-engineering
+      - tooling
+    related:
+      - synthesis-console
+    last_session: "2026-04-12"
+
+  - id: infrastructure-maintenance
+    name: "Infrastructure Maintenance — CI/CD and Dependency Updates"
+    status: ongoing
+    started_date: 2025-10-01
+    description: >
+      Ongoing maintenance of build pipelines, dependency updates, security
+      patches, and deployment infrastructure across all repositories.
+    tags:
+      - infrastructure
+      - maintenance
+    last_session: "2026-04-10"
+
+  # ============================================================================
+  # COMPLETED PROJECTS
+  # ============================================================================
+
+  - id: api-v3-migration
+    name: "API v3 Migration — REST to GraphQL Conversion"
+    status: completed
+    started_date: 2025-11-01
+    completed_date: 2026-01-15
+    description: >
+      Migrated the internal API from REST to GraphQL. Converted 23 endpoints,
+      implemented query batching, added type-safe code generation, and
+      maintained backward compatibility throughout the migration.
+    tags:
+      - architecture
+      - migration
+      - infrastructure
+    outcome: success
+    key_result: "23 endpoints migrated, 40% reduction in API calls via query batching"
+
+  - id: design-system-unification
+    name: "Design System Unification — Cross-Site Component Library"
+    status: completed
+    started_date: 2025-12-10
+    completed_date: 2026-02-28
+    description: >
+      Unified UI components across four web properties into a shared design
+      system. Extracted common patterns, established a token-based theming
+      approach, and documented usage guidelines.
+    tags:
+      - architecture
+      - tooling
+      - developer-experience
+    outcome: success
+    key_result: "Shared component library serving 4 sites, 60% reduction in CSS duplication"
+
+  - id: documentation-overhaul
+    name: "Documentation Overhaul — README and Runbook Standardization"
+    status: completed
+    started_date: 2026-01-05
+    completed_date: 2026-02-15
+    description: >
+      Standardized documentation across all repositories. Created README
+      templates, converted runbooks to agent skills, and established a
+      tiered context architecture for project documentation.
+    tags:
+      - documentation
+      - synthesis-engineering
+    outcome: success
+    key_result: "35 agent skills created from 67 runbook source files"
+    related:
+      - synthesis-skills-ecosystem
+
+  - id: performance-audit
+    name: "Performance Audit — Build Time and Bundle Optimization"
+    status: completed
+    started_date: 2026-02-01
+    completed_date: 2026-03-01
+    description: >
+      Systematic audit of build performance and bundle sizes across all
+      web properties. Identified bottlenecks, implemented code splitting,
+      and reduced average build time by 45%.
+    tags:
+      - infrastructure
+      - tooling
+    outcome: success
+    key_result: "45% build time reduction, 30% smaller bundles via code splitting"
+
+  # ============================================================================
+  # ARCHIVED PROJECTS
+  # ============================================================================
+
+  - id: legacy-dashboard-v1
+    name: "Legacy Dashboard v1 — Original Python Prototype"
+    status: archived
+    started_date: 2025-06-01
+    completed_date: 2025-09-15
+    archived_date: 2025-12-01
+    description: >
+      The original project dashboard prototype built with Flask and Jinja
+      templates. Functionally adequate but required a Python environment and
+      lacked the conventions-based approach of the current system.
+    tags:
+      - tooling
+      - infrastructure
+    outcome: superseded
+
+  - id: monorepo-experiment
+    name: "Monorepo Experiment — Evaluated and Rejected"
+    status: archived
+    started_date: 2025-07-01
+    archived_date: 2025-08-15
+    description: >
+      Evaluated consolidating all repositories into a single monorepo.
+      Rejected after analysis showed the polyrepo model better supports
+      the multi-workspace architecture and independent deployment.
+    tags:
+      - architecture
+      - infrastructure
+    outcome: superseded
+
+  # ============================================================================
+  # SUPERSEDED PROJECTS
+  # ============================================================================
+
+  - id: manual-runbook-system
+    name: "Manual Runbook System — Replaced by Agent Skills"
+    status: superseded
+    started_date: 2025-04-01
+    completed_date: 2025-12-15
+    description: >
+      The original system of markdown runbooks for operational procedures.
+      Superseded by the agent skills ecosystem, which provides the same
+      procedural guidance in a format that AI agents can execute directly.
+    tags:
+      - synthesis-engineering
+      - documentation
+    superseded_by: synthesis-skills-ecosystem
+    outcome: superseded

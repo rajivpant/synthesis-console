@@ -1,0 +1,32 @@
+{
+  "name": "synthesis-console",
+  "version": "0.1.0",
+  "description": "Local dashboard for synthesis engineering — renders project management files as browsable, searchable pages",
+  "type": "module",
+  "scripts": {
+    "start": "bun run src/index.ts",
+    "dev": "bun --watch run src/index.ts",
+    "demo": "bun run src/index.ts --demo"
+  },
+  "dependencies": {
+    "hono": "^4.7.0",
+    "js-yaml": "^4.1.0",
+    "marked": "^15.0.0"
+  },
+  "devDependencies": {
+    "@types/js-yaml": "^4.0.9"
+  },
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/rajivpant/synthesis-console.git"
+  },
+  "author": "Rajiv Pant",
+  "keywords": [
+    "synthesis-engineering",
+    "project-management",
+    "dashboard",
+    "markdown",
+    "local-first"
+  ]
+}

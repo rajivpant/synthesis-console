@@ -1,0 +1,295 @@
+/* Synthesis Console — Custom Styles */
+/* Layered on top of Pico CSS classless framework */
+
+/* ---- Logo ---- */
+.logo {
+  text-decoration: none;
+}
+
+/* ---- Status Badges ---- */
+.badge {
+  display: inline-block;
+  padding: 0.15em 0.55em;
+  border-radius: 4px;
+  font-size: 0.8em;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+}
+
+.badge-blue { background: #dbeafe; color: #1e40af; }
+.badge-purple { background: #ede9fe; color: #6b21a8; }
+.badge-yellow { background: #fef9c3; color: #854d0e; }
+.badge-teal { background: #ccfbf1; color: #115e59; }
+.badge-green { background: #dcfce7; color: #166534; }
+.badge-gray { background: #f3f4f6; color: #4b5563; }
+.badge-red { background: #fee2e2; color: #991b1b; }
+.badge-outline {
+  background: transparent;
+  border: 1px solid #9ca3af;
+  color: #6b7280;
+}
+.badge-demo {
+  background: #fef3c7;
+  color: #92400e;
+  border: 1px solid #f59e0b;
+  font-size: 0.65em;
+  vertical-align: middle;
+  margin-left: 0.5em;
+}
+
+/* ---- Demo Banner ---- */
+.demo-banner {
+  background: #fffbeb;
+  border: 1px solid #f59e0b;
+  border-radius: 6px;
+  padding: 0.8em 1.2em;
+  margin-bottom: 1.5em;
+  font-size: 0.9em;
+  color: #92400e;
+}
+
+/* ---- Stats Bar ---- */
+.stats-bar {
+  display: flex;
+  gap: 0.5em;
+  flex-wrap: wrap;
+  margin-bottom: 1.5em;
+  align-items: center;
+}
+
+/* ---- Filters ---- */
+.filters {
+  margin-bottom: 2em;
+}
+
+.search-bar {
+  margin-bottom: 1em;
+}
+
+.search-bar input {
+  width: 100%;
+  margin-bottom: 0;
+}
+
+.filter-group {
+  display: flex;
+  gap: 0.4em;
+  flex-wrap: wrap;
+  padding: 0.5em 0;
+}
+
+.status-toggle,
+.tag-toggle {
+  font-size: 0.8em;
+  padding: 0.3em 0.7em;
+  border-radius: 4px;
+  border: 1px solid #d1d5db;
+  background: #fff;
+  color: #374151;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.status-toggle:hover,
+.tag-toggle:hover {
+  border-color: #6366f1;
+  color: #4f46e5;
+}
+
+.status-toggle.active,
+.tag-toggle.active {
+  background: #4f46e5;
+  color: #fff;
+  border-color: #4f46e5;
+}
+
+/* ---- Project Cards ---- */
+.project-group {
+  margin-bottom: 2em;
+}
+
+.project-group h2 {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+  margin-bottom: 0.5em;
+}
+
+.project-row {
+  padding: 0.8em 1em;
+  margin-bottom: 0;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.project-row:last-child {
+  border-bottom: none;
+}
+
+.project-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 1em;
+}
+
+.project-header a {
+  text-decoration: none;
+}
+
+.project-header a:hover {
+  text-decoration: underline;
+}
+
+.project-header time {
+  font-size: 0.85em;
+  color: #6b7280;
+  white-space: nowrap;
+}
+
+.project-desc {
+  font-size: 0.9em;
+  color: #4b5563;
+  margin: 0.3em 0;
+}
+
+.project-meta {
+  display: flex;
+  gap: 0.3em;
+  flex-wrap: wrap;
+  margin-top: 0.3em;
+}
+
+/* ---- Tags ---- */
+.tag {
+  display: inline-block;
+  padding: 0.1em 0.45em;
+  border-radius: 3px;
+  font-size: 0.75em;
+  background: #f3f4f6;
+  color: #4b5563;
+  text-decoration: none;
+  border: 1px solid #e5e7eb;
+}
+
+.tag:hover {
+  background: #e5e7eb;
+  color: #1f2937;
+}
+
+.tag-client {
+  background: #fef3c7;
+  color: #92400e;
+  border-color: #fde68a;
+}
+
+/* ---- Project Detail Layout ---- */
+.project-detail-layout {
+  display: grid;
+  grid-template-columns: 260px 1fr;
+  gap: 2em;
+  align-items: start;
+}
+
+@media (max-width: 768px) {
+  .project-detail-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+.project-sidebar {
+  position: sticky;
+  top: 1em;
+}
+
+.project-sidebar section {
+  margin-bottom: 1.5em;
+}
+
+.project-sidebar h3 {
+  font-size: 0.9em;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #6b7280;
+  margin-bottom: 0.5em;
+}
+
+.sidebar-section {
+  margin-bottom: 0.8em;
+}
+
+.sidebar-section strong {
+  display: block;
+  font-size: 0.8em;
+  text-transform: uppercase;
+  color: #9ca3af;
+  margin-bottom: 0.2em;
+}
+
+.dates-table {
+  font-size: 0.85em;
+}
+
+.dates-table td {
+  padding: 0.2em 0.5em;
+}
+
+.dates-table td:first-child {
+  font-weight: 600;
+  color: #6b7280;
+  white-space: nowrap;
+}
+
+/* ---- Rendered Markdown ---- */
+.rendered-markdown {
+  line-height: 1.7;
+}
+
+.rendered-markdown h1:first-child {
+  display: none; /* Avoid duplicate title from markdown */
+}
+
+.rendered-markdown table {
+  font-size: 0.9em;
+}
+
+.rendered-markdown pre {
+  background: #1e293b;
+  color: #e2e8f0;
+  padding: 1em;
+  border-radius: 6px;
+  overflow-x: auto;
+}
+
+.rendered-markdown code {
+  font-size: 0.9em;
+}
+
+.rendered-markdown blockquote {
+  border-left: 3px solid #6366f1;
+  padding-left: 1em;
+  color: #4b5563;
+}
+
+/* ---- Project Description ---- */
+.project-description {
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  padding: 1em 1.2em;
+  margin-bottom: 1.5em;
+}
+
+/* ---- Nav Active State ---- */
+nav a.active {
+  font-weight: 700;
+}
+
+/* ---- Footer ---- */
+footer {
+  margin-top: 3em;
+  padding-top: 1em;
+  border-top: 1px solid #e5e7eb;
+  color: #9ca3af;
+}

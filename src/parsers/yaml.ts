@@ -1,0 +1,161 @@
+import { readFileSync } from "fs";
+import yaml from "js-yaml";
+import type { WorkspaceConfig } from "../config.js";
+import { getProjectsPath } from "../config.js";
+
+export type ProjectStatus =
+  | "new"
+  | "active"
+  | "paused"
+  | "ongoing"
+  | "completed"
+  | "archived"
+  | "superseded";
+
+export interface Project {
+  id: string;
+  name: string;
+  status: ProjectStatus;
+  description: string;
+  tags: string[];
+  started_date?: string;
+  completed_date?: string;
+  archived_date?: string;
+  last_session?: string;
+  related?: string[];
+  outcome?: string;
+  key_result?: string;
+  client?: string;
+  superseded_by?: string;
+  technologies?: string[];
+}
+
+interface IndexFile {
+  projects: Project[];
+}
+
+function toStr(val: unknown): string | undefined {
+  if (val == null) return undefined;
+  if (val instanceof Date) {
+    return val.toISOString().slice(0, 10);
+  }
+  return String(val);
+}
+
+function normalizeProject(raw: Record<string, unknown>): Project {
+  return {
+    id: String(raw.id || ""),
+    name: String(raw.name || ""),
+    status: String(raw.status || "active") as ProjectStatus,
+    description: String(raw.description || ""),
+    tags: Array.isArray(raw.tags) ? raw.tags.map(String) : [],
+    started_date: toStr(raw.started_date),
+    completed_date: toStr(raw.completed_date),
+    archived_date: toStr(raw.archived_date),
+    last_session: toStr(raw.last_session),
+    related: Array.isArray(raw.related) ? raw.related.map(String) : undefined,
+    outcome: toStr(raw.outcome),
+    key_result: toStr(raw.key_result),
+    client: toStr(raw.client),
+    superseded_by: toStr(raw.superseded_by),
+    technologies: Array.isArray(raw.technologies)
+      ? raw.technologies.map(String)
+      : undefined,
+  };
+}
+
+export function loadProjectIndex(ws: WorkspaceConfig): Project[] {
+  const indexPath = `${getProjectsPath(ws)}/index.yaml`;
+  try {
+    const raw = readFileSync(indexPath, "utf-8");
+    const parsed = yaml.load(raw, { json: true }) as { projects: Record<string, unknown>[] };
+    if (!parsed.projects) return [];
+    return parsed.projects.map(normalizeProject);
+  } catch (err) {
+    console.warn(`Failed to load project index at ${indexPath}: ${err instanceof Error ? err.message : err}`);
+    return [];
+  }
+}
+
+export function getProjectById(
+  projects: Project[],
+  id: string
+): Project | undefined {
+  return projects.find((p) => p.id === id);
+}
+
+export function groupByStatus(
+  projects: Project[]
+): Record<ProjectStatus, Project[]> {
+  const groups: Record<ProjectStatus, Project[]> = {
+    new: [],
+    active: [],
+    paused: [],
+    ongoing: [],
+    completed: [],
+    archived: [],
+    superseded: [],
+  };
+
+  for (const p of projects) {
+    const status = p.status as ProjectStatus;
+    if (groups[status]) {
+      groups[status].push(p);
+    }
+  }
+
+  return groups;
+}
+
+export function getAllTags(projects: Project[]): Map<string, number> {
+  const tags = new Map<string, number>();
+  for (const p of projects) {
+    if (p.tags) {
+      for (const tag of p.tags) {
+        tags.set(tag, (tags.get(tag) || 0) + 1);
+      }
+    }
+  }
+  return new Map([...tags.entries()].sort((a, b) => b[1] - a[1]));
+}
+
+export function filterProjects(
+  projects: Project[],
+  opts: {
+    status?: string;
+    tag?: string;
+    client?: string;
+    q?: string;
+  }
+): Project[] {
+  let filtered = projects;
+
+  if (opts.status) {
+    const statuses = opts.status.split(",");
+    filtered = filtered.filter((p) => statuses.includes(p.status));
+  }
+
+  if (opts.tag) {
+    const tags = opts.tag.split(",");
+    filtered = filtered.filter(
+      (p) => p.tags && tags.some((t) => p.tags.includes(t))
+    );
+  }
+
+  if (opts.client) {
+    filtered = filtered.filter((p) => p.client === opts.client);
+  }
+
+  if (opts.q) {
+    const query = opts.q.toLowerCase();
+    filtered = filtered.filter(
+      (p) =>
+        p.name.toLowerCase().includes(query) ||
+        p.description?.toLowerCase().includes(query) ||
+        p.id.toLowerCase().includes(query) ||
+        (p.tags && p.tags.some((t) => t.toLowerCase().includes(query)))
+    );
+  }
+
+  return filtered;
+}
