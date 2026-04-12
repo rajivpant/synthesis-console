@@ -111,8 +111,10 @@ export function readAndRenderPlanMarkdown(filePath: string): string | null {
 
   // Insert a notice before draft message sections reminding users to review
   const draftNotice = `<div class="draft-notice" role="note">
-    <strong>Review before sending.</strong> These drafts are starting points, not final messages.
-    Read each one, edit it in your own voice, and add the context only you have.
+    <strong>Review before sending.</strong> These drafts are grounded in real data &mdash;
+    code commits, test results, deployment logs, Slack threads, and project context &mdash;
+    but they are starting points, not final messages.
+    Read each one, edit it in your own voice, and add the personal touch only you can.
     Human-to-human communication deserves human effort.
   </div>`;
 
