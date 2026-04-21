@@ -6,7 +6,9 @@
   "scripts": {
     "start": "bun run src/index.ts",
     "dev": "bun --watch run src/index.ts",
-    "demo": "bun run src/index.ts --demo"
+    "demo": "bun run src/index.ts --demo",
+    "autostart:install": "bash scripts/install-autostart-$(uname -s | tr '[:upper:]' '[:lower:]' | sed 's/darwin/macos/').sh",
+    "autostart:uninstall": "bash scripts/uninstall-autostart-$(uname -s | tr '[:upper:]' '[:lower:]' | sed 's/darwin/macos/').sh"
   },
   "dependencies": {
     "hono": "^4.7.0",

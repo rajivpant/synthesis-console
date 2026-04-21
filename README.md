@@ -83,6 +83,63 @@ Each workspace points to a directory containing an `ai-knowledge-*` repo with a 
 
 **Portability:** Uses `~/` in paths, so the same config file works across machines with different usernames.
 
+## Auto-start on Login
+
+Once you're using the console daily, have it start automatically when you log in. Installed and managed per-user — no root, no system-wide changes.
+
+### macOS (launchd)
+
+```bash
+bun run autostart:install
+```
+
+Writes a LaunchAgent plist to `~/Library/LaunchAgents/org.synthesisengineering.console.plist`, loads it, and starts the server. Logs go to `~/Library/Logs/synthesis-console/`.
+
+Uninstall:
+
+```bash
+bun run autostart:uninstall
+```
+
+### Linux (systemd user unit)
+
+```bash
+bun run autostart:install
+```
+
+Writes a user service to `~/.config/systemd/user/synthesis-console.service`, enables it, and starts it. Logs go through journald:
+
+```bash
+journalctl --user -u synthesis-console -f
+```
+
+The service runs while you're logged in. To keep it running across logouts, run `loginctl enable-linger "$USER"` once.
+
+Uninstall:
+
+```bash
+bun run autostart:uninstall
+```
+
+### Windows
+
+Not yet scripted. Two options until then:
+
+- **WSL:** clone the repo inside WSL and use the Linux script.
+- **Native:** create a Task Scheduler entry that runs `bun run src/index.ts` from the repo directory at logon. A PR adding a PowerShell installer is welcome.
+
+### What the installer does
+
+The install scripts are shell files in `scripts/` — readable and short. They:
+
+1. Locate your `bun` binary and bake its absolute path into the unit (no PATH surprises at boot).
+2. Resolve the repo root from the script's own location, so it works wherever you clone.
+3. Set up log paths (`~/Library/Logs/` on macOS, journald on Linux).
+4. Restart on crash with a throttle (no hot-loop if the server fails at startup).
+5. Are idempotent — re-running regenerates the unit file and reloads.
+
+The server runs on its usual port (5555 by default, auto-incrementing if busy). Open `http://localhost:5555` any time.
+
 ## Demo Mode
 
 Demo mode runs the console with bundled sample data — 18 projects across all 7 statuses, plus sample lessons. Three ways to activate:
