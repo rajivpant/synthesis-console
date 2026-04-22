@@ -1,15 +1,16 @@
 import { Hono } from "hono";
 import { existsSync, readdirSync } from "fs";
 import { join } from "path";
-import type { ConsoleConfig, WorkspaceConfig } from "../config.js";
-import { getLessonsPath } from "../config.js";
+import type { ConsoleConfig, Source } from "../config.js";
+import { getLessonsPath, findSource } from "../config.js";
 import { readAndRenderMarkdown } from "../parsers/markdown.js";
 import { layout } from "../views/layout.js";
 import { lessonListView, lessonDetailView } from "../views/lesson.js";
 import type { LessonEntry } from "../views/lesson.js";
 import { escapeHtml, sanitizePathSegment } from "../utils.js";
+import { activeSources } from "../active-sources.js";
 
-function parseLessonFilename(filename: string): LessonEntry | null {
+function parseLessonFilename(filename: string): Omit<LessonEntry, "source"> | null {
   const match = filename.match(/^(\d{4}-\d{2}-\d{2})-(.+)\.md$/);
   if (!match) return null;
 
@@ -23,102 +24,111 @@ function parseLessonFilename(filename: string): LessonEntry | null {
   return { slug: filename.replace(".md", ""), filename, date, title };
 }
 
+function loadLessonsFromSource(src: Source): LessonEntry[] {
+  const dir = getLessonsPath(src);
+  if (!dir || !existsSync(dir)) return [];
+
+  const files = readdirSync(dir)
+    .filter((f) => f.endsWith(".md"))
+    .sort()
+    .reverse();
+
+  const out: LessonEntry[] = [];
+  for (const f of files) {
+    const entry = parseLessonFilename(f);
+    if (entry) out.push({ ...entry, source: src.name });
+  }
+  return out;
+}
+
 export function lessonRoutes(config: ConsoleConfig) {
   const app = new Hono();
 
-  function resolveWorkspace(wsName?: string): WorkspaceConfig {
-    if (wsName) {
-      const ws = config.workspaces.find((w) => w.name === wsName);
-      if (ws) return ws;
-    }
-    return config.workspaces[0];
-  }
-
-  // Lessons list
   app.get("/lessons", (c) => {
-    const ws = resolveWorkspace(c.req.query("ws"));
-    const lessonsDir = getLessonsPath(ws);
-
+    const active = activeSources(c, config);
     const lessons: LessonEntry[] = [];
-    if (existsSync(lessonsDir)) {
-      const files = readdirSync(lessonsDir)
-        .filter((f) => f.endsWith(".md"))
-        .sort()
-        .reverse();
-
-      for (const f of files) {
-        const entry = parseLessonFilename(f);
-        if (entry) lessons.push(entry);
-      }
+    for (const src of active) {
+      lessons.push(...loadLessonsFromSource(src));
     }
+    lessons.sort((a, b) => b.date.localeCompare(a.date));
 
-    const content = lessonListView({ lessons, workspace: ws.name });
+    const content = lessonListView({
+      lessons,
+      sources: active,
+    });
 
     return c.html(
       layout({
         title: "Lessons",
         content,
-        workspaces: config.workspaces,
-        currentWorkspace: ws.name,
+        sources: config.sources,
+        activeSourceNames: active.map((s) => s.name),
         currentPath: "/lessons",
+        demoMode: config.demoMode,
       })
     );
   });
 
-  // Lesson detail
-  app.get("/lessons/:slug", (c) => {
-    const ws = resolveWorkspace(c.req.query("ws"));
+  app.get("/lessons/:source/:slug", (c) => {
+    const active = activeSources(c, config);
+    const sourceName = sanitizePathSegment(c.req.param("source"));
     const slug = sanitizePathSegment(c.req.param("slug"));
 
-    if (!slug) {
-      return c.html(
-        layout({
-          title: "Not Found",
-          content: `<h1>Not found</h1><p><a href="/lessons?ws=${escapeHtml(ws.name)}">Back to lessons</a></p>`,
-          workspaces: config.workspaces,
-          currentWorkspace: ws.name,
-          currentPath: "/lessons",
-          }),
-        404
-      );
+    if (!sourceName || !slug) {
+      return notFound(c, config, active, "Not found.");
     }
 
-    const lessonsDir = getLessonsPath(ws);
-    const filePath = join(lessonsDir, `${slug}.md`);
+    const src = findSource(config.sources, sourceName);
+    if (!src) return notFound(c, config, active, `Source "${escapeHtml(sourceName)}" not found.`);
 
+    const lessonsDir = getLessonsPath(src);
+    if (!lessonsDir) {
+      return notFound(c, config, active, `Source "${escapeHtml(sourceName)}" does not provide lessons.`);
+    }
+
+    const filePath = join(lessonsDir, `${slug}.md`);
     const contentHtml = readAndRenderMarkdown(filePath);
     if (!contentHtml) {
-      return c.html(
-        layout({
-          title: "Not Found",
-          content: `<h1>Lesson not found</h1><p><a href="/lessons?ws=${escapeHtml(ws.name)}">Back to lessons</a></p>`,
-          workspaces: config.workspaces,
-          currentWorkspace: ws.name,
-          currentPath: "/lessons",
-          }),
-        404
-      );
+      return notFound(c, config, active, `Lesson not found.`);
     }
 
-    const entry = parseLessonFilename(`${slug}.md`);
-    const lesson = entry || { slug, filename: `${slug}.md`, date: "", title: slug };
+    const parsed = parseLessonFilename(`${slug}.md`);
+    const lesson: LessonEntry = parsed
+      ? { ...parsed, source: src.name }
+      : { slug, filename: `${slug}.md`, date: "", title: slug, source: src.name };
 
-    const content = lessonDetailView({
-      lesson,
-      contentHtml,
-      workspace: ws.name,
-    });
+    const content = lessonDetailView({ lesson, contentHtml });
 
     return c.html(
       layout({
         title: lesson.title,
         content,
-        workspaces: config.workspaces,
-        currentWorkspace: ws.name,
-        currentPath: `/lessons/${slug}`,
+        sources: config.sources,
+        activeSourceNames: active.map((s) => s.name),
+        currentPath: `/lessons/${src.name}/${slug}`,
+        demoMode: config.demoMode,
       })
     );
   });
 
   return app;
+}
+
+function notFound(
+  c: import("hono").Context,
+  config: ConsoleConfig,
+  active: Source[],
+  message: string
+) {
+  return c.html(
+    layout({
+      title: "Not Found",
+      content: `<h1>Not found</h1><p>${message}</p><p><a href="/lessons">Back to lessons</a></p>`,
+      sources: config.sources,
+      activeSourceNames: active.map((s) => s.name),
+      currentPath: "/lessons",
+      demoMode: config.demoMode,
+    }),
+    404
+  );
 }

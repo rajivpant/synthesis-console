@@ -1,0 +1,51 @@
+# Synthesis Console configuration — example template
+# ==========================================================
+# Copy this file to ~/.synthesis/console.yaml and edit to match your layout.
+# This template mirrors the author's personal + clients layout with sanitized names;
+# you are welcome to use your own structure. See docs/layouts.md for alternatives.
+#
+# Schema reference (v0.2+):
+#   sources[]:
+#     name:            unique identifier, used in URLs and the cookie (required)
+#     display_name:    human-readable label in the UI (optional, defaults to name)
+#     root:            absolute path to the source (tilde expansion supported, required)
+#     projects_dir:    relative path to projects dir — contributes the projects view (optional)
+#     lessons_dir:     relative path to lessons dir — contributes the lessons view (optional)
+#     plans_dir:       relative path to daily-plans dir — contributes the plans view (optional)
+#     notes_dir:       relative path to notes dir — reserved for Phase 3 wiki viewer (optional)
+#     default_active:  true/false — pre-selected on first run (optional, default false)
+#     demo:            true/false — marks as demo data (optional, default false)
+#   port: preferred port; auto-increments if busy (optional, default 5555)
+#
+# A source contributes to a view if and only if its corresponding *_dir field is set.
+# Omit a field and the source contributes nothing to that view. The source can still
+# contribute to other views. Selection across sources persists in a cookie; the
+# default_active flag only applies on first run when no cookie exists.
+
+sources:
+  # Personal (cross-workspace) — projects, lessons, and person-scoped daily plans
+  - name: personal
+    display_name: Personal
+    root: ~/knowledge/personal
+    projects_dir: projects
+    lessons_dir: lessons
+    plans_dir: daily-plans
+    default_active: true
+
+  # Example client — projects and notes only; no daily plans (plans are person-scoped
+  # and live in the personal source, by convention). Duplicate and rename this block
+  # for each additional client workspace.
+  - name: example-client
+    display_name: Example Client
+    root: ~/workspaces/example-client/knowledge-example-client-private
+    projects_dir: projects
+    notes_dir: notes
+
+  - name: example-client-2
+    display_name: Example Client 2
+    root: ~/workspaces/example-client-2/knowledge-example-client-2-private
+    projects_dir: projects
+    notes_dir: notes
+
+# Preferred port; auto-increments if busy.
+port: 5555

@@ -16,33 +16,34 @@ export function projectDetailView(opts: {
   contextHtml: string | null;
   referenceHtml: string | null;
   sessions: { name: string; period: string }[];
-  workspace: string;
+  sourceName: string;
 }): string {
-  const { project: p, contextHtml, referenceHtml, sessions, workspace } = opts;
+  const { project: p, contextHtml, referenceHtml, sessions, sourceName } = opts;
 
   const statusColor = STATUS_COLORS[p.status] || "gray";
 
   const tags = (p.tags || [])
     .map(
       (t) =>
-        `<a href="/projects?ws=${escapeAttr(workspace)}&tag=${encodeURIComponent(t)}" class="tag">${escapeHtml(t)}</a>`
+        `<a href="/projects?tag=${encodeURIComponent(t)}" class="tag">${escapeHtml(t)}</a>`
     )
     .join(" ");
 
   const relatedLinks = (p.related || [])
     .map(
       (r) =>
-        `<a href="/projects/${encodeURIComponent(r)}?ws=${escapeAttr(workspace)}">${escapeHtml(r)}</a>`
+        `<a href="/projects/${encodeURIComponent(sourceName)}/${encodeURIComponent(r)}">${escapeHtml(r)}</a>`
     )
     .join(", ");
 
   const dates = buildDatesTable(p);
-  const sessionsList = renderSessionsList(p.id, sessions, workspace);
+  const sessionsList = renderSessionsList(p.id, sessions, sourceName);
 
   return `
     <nav aria-label="breadcrumb">
       <ul>
-        <li><a href="/projects?ws=${escapeAttr(workspace)}">Projects</a></li>
+        <li><a href="/projects">Projects</a></li>
+        <li><span class="source-badge" title="Source: ${escapeAttr(sourceName)}">${escapeHtml(sourceName)}</span></li>
         <li>${escapeHtml(p.name)}</li>
       </ul>
     </nav>
@@ -56,12 +57,13 @@ export function projectDetailView(opts: {
       <aside class="project-sidebar">
         <section>
           <h3>Metadata</h3>
+          <div class="sidebar-section"><strong>Source</strong><div>${escapeHtml(sourceName)}</div></div>
           ${dates}
           ${tags ? `<div class="sidebar-section"><strong>Tags</strong><div>${tags}</div></div>` : ""}
           ${p.client ? `<div class="sidebar-section"><strong>Client</strong><div>${escapeHtml(p.client)}</div></div>` : ""}
           ${relatedLinks ? `<div class="sidebar-section"><strong>Related</strong><div>${relatedLinks}</div></div>` : ""}
           ${p.outcome ? `<div class="sidebar-section"><strong>Outcome</strong><div>${escapeHtml(p.outcome)}</div></div>` : ""}
-          ${p.superseded_by ? `<div class="sidebar-section"><strong>Superseded by</strong><div><a href="/projects/${encodeURIComponent(p.superseded_by)}?ws=${escapeAttr(workspace)}">${escapeHtml(p.superseded_by)}</a></div></div>` : ""}
+          ${p.superseded_by ? `<div class="sidebar-section"><strong>Superseded by</strong><div><a href="/projects/${encodeURIComponent(sourceName)}/${encodeURIComponent(p.superseded_by)}">${escapeHtml(p.superseded_by)}</a></div></div>` : ""}
         </section>
         ${p.key_result ? `<section><h3>Key Result</h3><p>${escapeHtml(p.key_result)}</p></section>` : ""}
         ${sessionsList}
@@ -102,14 +104,14 @@ function buildDatesTable(p: Project): string {
 function renderSessionsList(
   projectId: string,
   sessions: { name: string; period: string }[],
-  workspace: string
+  sourceName: string
 ): string {
   if (sessions.length === 0) return "";
 
   const items = sessions
     .map(
       (s) =>
-        `<li><a href="/projects/${encodeURIComponent(projectId)}/sessions/${encodeURIComponent(s.period)}?ws=${escapeAttr(workspace)}">${escapeHtml(s.name)}</a></li>`
+        `<li><a href="/projects/${encodeURIComponent(sourceName)}/${encodeURIComponent(projectId)}/sessions/${encodeURIComponent(s.period)}">${escapeHtml(s.name)}</a></li>`
     )
     .join("\n");
 

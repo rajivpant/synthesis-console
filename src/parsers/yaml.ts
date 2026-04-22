@@ -1,6 +1,6 @@
 import { readFileSync } from "fs";
 import yaml from "js-yaml";
-import type { WorkspaceConfig } from "../config.js";
+import type { Source } from "../config.js";
 import { getProjectsPath } from "../config.js";
 
 export type ProjectStatus =
@@ -30,8 +30,8 @@ export interface Project {
   technologies?: string[];
 }
 
-interface IndexFile {
-  projects: Project[];
+export interface ProjectWithSource extends Project {
+  _source: string;
 }
 
 function toStr(val: unknown): string | undefined {
@@ -64,17 +64,34 @@ function normalizeProject(raw: Record<string, unknown>): Project {
   };
 }
 
-export function loadProjectIndex(ws: WorkspaceConfig): Project[] {
-  const indexPath = `${getProjectsPath(ws)}/index.yaml`;
+export function loadProjectIndex(src: Source): Project[] {
+  const projectsDir = getProjectsPath(src);
+  if (!projectsDir) return [];
+
+  const indexPath = `${projectsDir}/index.yaml`;
   try {
     const raw = readFileSync(indexPath, "utf-8");
-    const parsed = yaml.load(raw, { json: true }) as { projects: Record<string, unknown>[] };
-    if (!parsed.projects) return [];
+    const parsed = yaml.load(raw, { json: true }) as { projects?: Record<string, unknown>[] };
+    if (!parsed?.projects) return [];
     return parsed.projects.map(normalizeProject);
   } catch (err) {
-    console.warn(`Failed to load project index at ${indexPath}: ${err instanceof Error ? err.message : err}`);
+    const code = (err as NodeJS.ErrnoException)?.code;
+    if (code !== "ENOENT") {
+      console.warn(`Failed to load project index at ${indexPath}: ${err instanceof Error ? err.message : err}`);
+    }
     return [];
   }
+}
+
+export function loadProjectsFromSources(sources: Source[]): ProjectWithSource[] {
+  const out: ProjectWithSource[] = [];
+  for (const src of sources) {
+    const projects = loadProjectIndex(src);
+    for (const p of projects) {
+      out.push({ ...p, _source: src.name });
+    }
+  }
+  return out;
 }
 
 export function getProjectById(
@@ -119,15 +136,16 @@ export function getAllTags(projects: Project[]): Map<string, number> {
   return new Map([...tags.entries()].sort((a, b) => b[1] - a[1]));
 }
 
-export function filterProjects(
-  projects: Project[],
+export function filterProjects<T extends Project>(
+  projects: T[],
   opts: {
     status?: string;
     tag?: string;
     client?: string;
     q?: string;
+    source?: string;
   }
-): Project[] {
+): T[] {
   let filtered = projects;
 
   if (opts.status) {
@@ -144,6 +162,13 @@ export function filterProjects(
 
   if (opts.client) {
     filtered = filtered.filter((p) => p.client === opts.client);
+  }
+
+  if (opts.source) {
+    const sources = opts.source.split(",");
+    filtered = filtered.filter(
+      (p) => "_source" in p && sources.includes((p as unknown as ProjectWithSource)._source)
+    );
   }
 
   if (opts.q) {

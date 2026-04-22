@@ -1,4 +1,5 @@
-import type { Project, ProjectStatus } from "../parsers/yaml.js";
+import type { ProjectStatus, ProjectWithSource } from "../parsers/yaml.js";
+import type { Source } from "../config.js";
 import { escapeHtml, escapeAttr } from "../utils.js";
 
 const STATUS_ORDER: ProjectStatus[] = [
@@ -22,20 +23,24 @@ const STATUS_COLORS: Record<ProjectStatus, string> = {
 };
 
 export function projectListView(opts: {
-  projects: Project[];
+  projects: ProjectWithSource[];
   allTags: Map<string, number>;
-  currentFilters: { status?: string; tag?: string; client?: string; q?: string };
-  workspace: string;
+  currentFilters: { status?: string; tag?: string; client?: string; q?: string; source?: string };
+  sources: Source[];
+  activeSourceNames: string[];
+  demoMode: boolean;
 }): string {
-  const { projects, allTags, currentFilters, workspace } = opts;
-  const isDemo = workspace === "demo";
+  const { projects, allTags, currentFilters, sources, activeSourceNames, demoMode } = opts;
+  const isDemoActive =
+    demoMode ||
+    activeSourceNames.some((n) => sources.find((s) => s.name === n)?.demo === true);
 
   const statusCounts: Record<string, number> = {};
   for (const p of projects) {
     statusCounts[p.status] = (statusCounts[p.status] || 0) + 1;
   }
 
-  const grouped = new Map<ProjectStatus, Project[]>();
+  const grouped = new Map<ProjectStatus, ProjectWithSource[]>();
   for (const p of projects) {
     const status = p.status as ProjectStatus;
     if (!grouped.has(status)) grouped.set(status, []);
@@ -50,16 +55,24 @@ export function projectListView(opts: {
     });
   }
 
-  const demoBanner = isDemo
+  const demoBanner = isDemoActive
     ? `<div class="demo-banner" role="status">
-        You're viewing a demo workspace with sample projects. This data illustrates the conventions that Synthesis Console renders.
+        You're viewing demo data with sample projects. This data illustrates the conventions that Synthesis Console renders.
         <a href="https://github.com/rajivpant/synthesis-console">Learn more</a>
       </div>`
     : "";
 
+  const activeCount = activeSourceNames.length;
+  const emptyMessage =
+    activeCount === 0
+      ? `<p>No sources selected. Use the picker in the header to choose which sources to view.</p>`
+      : projects.length === 0
+        ? `<p>No projects found in ${activeCount === 1 ? "the selected source" : "the selected sources"}. ${sources.length > activeCount ? "Try selecting more sources." : ""}</p>`
+        : "";
+
   const statsHtml = renderStats(statusCounts, projects.length);
-  const filtersHtml = renderFilters(currentFilters, allTags, workspace);
-  const projectsHtml = renderProjectGroups(grouped, workspace);
+  const filtersHtml = renderFilters(currentFilters, allTags, sources, activeSourceNames);
+  const projectsHtml = emptyMessage || renderProjectGroups(grouped, sources);
 
   return `
     <h1>Projects</h1>
@@ -85,9 +98,10 @@ function renderStats(
 }
 
 function renderFilters(
-  current: { status?: string; tag?: string; client?: string; q?: string },
+  current: { status?: string; tag?: string; client?: string; q?: string; source?: string },
   allTags: Map<string, number>,
-  workspace: string
+  sources: Source[],
+  activeSourceNames: string[]
 ): string {
   const statusToggles = STATUS_ORDER.map((s) => {
     const active = current.status?.split(",").includes(s);
@@ -102,6 +116,25 @@ function renderFilters(
     })
     .join("\n");
 
+  const activeSet = new Set(activeSourceNames);
+  const sourceFilterCurrent = current.source?.split(",") || [];
+  const sourceButtons = sources
+    .filter((s) => activeSet.has(s.name))
+    .map((s) => {
+      const active = sourceFilterCurrent.includes(s.name);
+      const label = escapeHtml(s.display_name || s.name);
+      return `<button class="source-toggle${active ? " active" : ""}" data-source="${escapeAttr(s.name)}">${label}</button>`;
+    })
+    .join("\n");
+
+  const sourceFilter =
+    activeSet.size > 1
+      ? `<details>
+          <summary>Source <small>(filter within selected)</small></summary>
+          <div class="filter-group">${sourceButtons}</div>
+        </details>`
+      : "";
+
   return `
     <div class="filters">
       <div class="search-bar">
@@ -113,74 +146,67 @@ function renderFilters(
         <summary>Status</summary>
         <div class="filter-group">${statusToggles}</div>
       </details>
+      ${sourceFilter}
       <details>
         <summary>Tags <small>(${allTags.size} total)</small></summary>
         <div class="filter-group">${tagButtons}</div>
       </details>
     </div>
     <script>
-      const ws = ${JSON.stringify(workspace)};
+      (function() {
+        let searchTimeout;
+        const searchInput = document.getElementById('search-input');
+        if (searchInput) {
+          searchInput.addEventListener('input', function(e) {
+            clearTimeout(searchTimeout);
+            searchTimeout = setTimeout(() => updateFilter('q', e.target.value), 300);
+          });
+        }
 
-      let searchTimeout;
-      document.getElementById('search-input').addEventListener('input', function(e) {
-        clearTimeout(searchTimeout);
-        searchTimeout = setTimeout(() => updateFilter('q', e.target.value), 300);
-      });
+        function bindToggle(selector, paramName, attrName) {
+          document.querySelectorAll(selector).forEach(btn => {
+            btn.addEventListener('click', () => {
+              const value = btn.dataset[attrName];
+              const url = new URL(window.location);
+              const curr = url.searchParams.get(paramName);
+              const list = curr ? curr.split(',') : [];
+              const idx = list.indexOf(value);
+              if (idx >= 0) list.splice(idx, 1);
+              else list.push(value);
+              if (list.length) url.searchParams.set(paramName, list.join(','));
+              else url.searchParams.delete(paramName);
+              window.location = url.toString();
+            });
+          });
+        }
 
-      document.querySelectorAll('.status-toggle').forEach(btn => {
-        btn.addEventListener('click', () => {
-          const status = btn.dataset.status;
+        bindToggle('.status-toggle', 'status', 'status');
+        bindToggle('.tag-toggle', 'tag', 'tag');
+        bindToggle('.source-toggle', 'source', 'source');
+
+        function updateFilter(key, value) {
           const url = new URL(window.location);
-          const current = url.searchParams.get('status');
-          const statuses = current ? current.split(',') : [];
-          const idx = statuses.indexOf(status);
-          if (idx >= 0) statuses.splice(idx, 1);
-          else statuses.push(status);
-          if (statuses.length) url.searchParams.set('status', statuses.join(','));
-          else url.searchParams.delete('status');
-          url.searchParams.set('ws', ws);
+          if (value) url.searchParams.set(key, value);
+          else url.searchParams.delete(key);
           window.location = url.toString();
-        });
-      });
-
-      document.querySelectorAll('.tag-toggle').forEach(btn => {
-        btn.addEventListener('click', () => {
-          const tag = btn.dataset.tag;
-          const url = new URL(window.location);
-          const current = url.searchParams.get('tag');
-          const tags = current ? current.split(',') : [];
-          const idx = tags.indexOf(tag);
-          if (idx >= 0) tags.splice(idx, 1);
-          else tags.push(tag);
-          if (tags.length) url.searchParams.set('tag', tags.join(','));
-          else url.searchParams.delete('tag');
-          url.searchParams.set('ws', ws);
-          window.location = url.toString();
-        });
-      });
-
-      function updateFilter(key, value) {
-        const url = new URL(window.location);
-        if (value) url.searchParams.set(key, value);
-        else url.searchParams.delete(key);
-        url.searchParams.set('ws', ws);
-        window.location = url.toString();
-      }
+        }
+      })();
     </script>
   `;
 }
 
 function renderProjectGroups(
-  grouped: Map<ProjectStatus, Project[]>,
-  workspace: string
+  grouped: Map<ProjectStatus, ProjectWithSource[]>,
+  sources: Source[]
 ): string {
   const sections: string[] = [];
+  const sourceByName = new Map(sources.map((s) => [s.name, s]));
 
   for (const status of STATUS_ORDER) {
     const projects = grouped.get(status);
     if (!projects || projects.length === 0) continue;
 
-    const rows = projects.map((p) => renderProjectRow(p, workspace)).join("\n");
+    const rows = projects.map((p) => renderProjectRow(p, sourceByName)).join("\n");
 
     sections.push(`
       <section class="project-group">
@@ -199,11 +225,14 @@ function renderProjectGroups(
   return sections.join("\n");
 }
 
-function renderProjectRow(p: Project, workspace: string): string {
+function renderProjectRow(p: ProjectWithSource, sourceByName: Map<string, Source>): string {
+  const src = sourceByName.get(p._source);
+  const sourceLabel = src ? escapeHtml(src.display_name || src.name) : escapeHtml(p._source);
+
   const tags = (p.tags || [])
     .map(
       (t) =>
-        `<a href="/projects?ws=${escapeAttr(workspace)}&tag=${encodeURIComponent(t)}" class="tag">${escapeHtml(t)}</a>`
+        `<a href="/projects?tag=${encodeURIComponent(t)}" class="tag">${escapeHtml(t)}</a>`
     )
     .join(" ");
 
@@ -216,13 +245,14 @@ function renderProjectRow(p: Project, workspace: string): string {
   return `
     <article class="project-row">
       <div class="project-header">
-        <a href="/projects/${encodeURIComponent(p.id)}?ws=${escapeAttr(workspace)}">
+        <a href="/projects/${encodeURIComponent(p._source)}/${encodeURIComponent(p.id)}">
           <strong>${escapeHtml(p.name)}</strong>
         </a>
         ${date ? `<time>${escapeHtml(date)}</time>` : ""}
       </div>
       ${description ? `<p class="project-desc">${escapeHtml(description)}</p>` : ""}
       <div class="project-meta">
+        <span class="source-badge" title="Source: ${escapeAttr(p._source)}">${sourceLabel}</span>
         ${tags}
         ${p.client ? `<span class="tag tag-client">${escapeHtml(p.client)}</span>` : ""}
       </div>

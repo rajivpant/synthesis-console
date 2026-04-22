@@ -62,26 +62,69 @@ Open http://localhost:5555 in your browser.
 
 ## Configuration
 
-Create `~/.synthesis/console.yaml`:
+Copy `console.yaml.example` to `~/.synthesis/console.yaml` and edit to match your layout.
 
 ```yaml
-workspaces:
+sources:
   - name: personal
-    root: ~/workspaces/personal
-    knowledge: ai-knowledge-personal
-  - name: team
-    root: ~/workspaces/team
-    knowledge: ai-knowledge-team
+    root: ~/knowledge/personal
+    projects_dir: projects
+    lessons_dir: lessons
+    plans_dir: daily-plans
+    default_active: true
+
+  - name: example-client
+    root: ~/workspaces/example-client/knowledge-example-client-private
+    projects_dir: projects
+    notes_dir: notes
+
 port: 5555
 ```
 
-Each workspace points to a directory containing an `ai-knowledge-*` repo with a `projects/index.yaml` file.
+### Sources explained
 
-**Auto-detection:** If no config file exists, the console scans `~/workspaces/*/` for directories matching `ai-knowledge-*` and uses them automatically.
+Every source declares:
+- `name` (required) — unique identifier used in URLs and the selection cookie.
+- `root` (required) — absolute path on disk. Supports `~/` expansion.
 
-**Port:** Defaults to 5555. If the port is busy, automatically increments (5556, 5557, ...) and tells you which port it found.
+Plus any subset of these, by presence, to declare what the source provides:
+- `projects_dir` — activates the source in the projects view (expects `{root}/{projects_dir}/index.yaml`).
+- `lessons_dir` — activates the source in the lessons view (expects `YYYY-MM-DD-slug.md` filenames).
+- `plans_dir` — activates the source in the daily plans view (expects `YYYY-MM-DD.md` filenames).
+- `notes_dir` — reserved for the Phase 3 notes viewer.
 
-**Portability:** Uses `~/` in paths, so the same config file works across machines with different usernames.
+Optional flags:
+- `display_name` — human-readable label in the UI (defaults to `name`).
+- `default_active: true` — pre-selected on first run when no cookie is set.
+- `demo: true` — marks as demo data; filtered by the `--demo` flag.
+
+### Composition
+
+The picker in the header lets you select any subset of sources as **active**. Projects, lessons, and plans views union the selected sources and show a source badge on each item. Selection persists in the `sc_sources` cookie.
+
+A URL with `?sources=a,b` overrides the cookie for that session — useful for bookmarking or sharing a specific view.
+
+### Daily plans convention
+
+Daily plans are typically person-scoped: one person, one plan per day across all their roles. The convention is to declare `plans_dir` on exactly one source (usually a personal base). If you need per-client or per-business plans, declare `plans_dir` on multiple sources — the console merges them with source badges, and the plans calendar offers a "dates with plans from multiple sources" view below the month.
+
+See [docs/layouts.md](docs/layouts.md) for alternative layout recipes (single monorepo, team-shared + personal overlays, multi-business, team lead tracking reports, legacy underscore-prefixed).
+
+### Auto-detection
+
+If no config file exists, the console scans `~/workspaces/*/` for directories named `ai-knowledge-*` and configures them automatically. It detects both the current layout (top-level `lessons/`, `daily-plans/`) and the legacy layout (`projects/_lessons/`, `projects/_daily-plans/`). The `rajiv` workspace, if present, is marked default-active.
+
+### Port
+
+Defaults to 5555. If the port is busy, auto-increments (5556, 5557, ...) and prints the port it found.
+
+### Portability
+
+All paths use `~/` expansion, so the same config file works across machines with different usernames.
+
+### Migrating from v0.1
+
+v0.1 used a `workspaces:` schema with a single-workspace-at-a-time UI. v0.2 replaces that with `sources:` and multi-source composition. See [docs/migration-v0.2.md](docs/migration-v0.2.md) for the 60-second migration.
 
 ## Auto-start on Login
 
@@ -171,8 +214,8 @@ A "DEMO" badge in the header makes it clear when you're viewing sample data.
 | Package | Purpose |
 |---------|---------|
 | `hono` | HTTP routing and request handling |
-| `js-yaml` | Parse project index YAML |
-| `marked` | Render markdown to HTML |
+| `js-yaml` | Parse project index and config YAML |
+| `markdown-it` | Render markdown to HTML (with task-list plugin) |
 
 **How requests work:** Every page load reads files from disk, parses them, and returns rendered HTML. No caching, no database. Edit a markdown file, refresh the browser, see the change.
 
@@ -204,9 +247,9 @@ projects:
 
 **`projects/{id}/sessions/YYYY-MM.md`** — session archives, append-only monthly files.
 
-**`projects/_lessons/YYYY-MM-DD-slug.md`** — cross-project lessons learned.
+**`{lessons_dir}/YYYY-MM-DD-slug.md`** — cross-project lessons learned. Location is whatever you declare; the canonical layout is top-level `lessons/`.
 
-**`projects/_daily-plans/YYYY-MM-DD.md`** — daily action plans with prioritized tasks, draft messages, and delegation tracking.
+**`{plans_dir}/YYYY-MM-DD.md`** — daily action plans with prioritized tasks, draft messages, and delegation tracking. Canonical location is top-level `daily-plans/`.
 
 ## Daily Plans
 

@@ -1,36 +1,30 @@
 import { Hono } from "hono";
 import { existsSync, readdirSync } from "fs";
 import { join } from "path";
-import type { ConsoleConfig, WorkspaceConfig } from "../config.js";
-import { getProjectPath } from "../config.js";
+import type { ConsoleConfig } from "../config.js";
+import { getProjectPath, findSource } from "../config.js";
 import {
-  loadProjectIndex,
+  loadProjectsFromSources,
   getProjectById,
   getAllTags,
   filterProjects,
 } from "../parsers/yaml.js";
+import type { ProjectWithSource } from "../parsers/yaml.js";
 import { readAndRenderMarkdown } from "../parsers/markdown.js";
 import { layout } from "../views/layout.js";
 import { projectListView } from "../views/project-list.js";
 import { projectDetailView } from "../views/project-detail.js";
 import { sessionDetailView } from "../views/session.js";
 import { escapeHtml, sanitizePathSegment } from "../utils.js";
+import { activeSources } from "../active-sources.js";
 
 export function projectRoutes(config: ConsoleConfig) {
   const app = new Hono();
 
-  function resolveWorkspace(wsName?: string): WorkspaceConfig {
-    if (wsName) {
-      const ws = config.workspaces.find((w) => w.name === wsName);
-      if (ws) return ws;
-    }
-    return config.workspaces[0];
-  }
-
-  // Project list / dashboard
+  // Multi-source project list
   app.get("/projects", (c) => {
-    const ws = resolveWorkspace(c.req.query("ws"));
-    const projects = loadProjectIndex(ws);
+    const active = activeSources(c, config);
+    const projects: ProjectWithSource[] = loadProjectsFromSources(active);
     const allTags = getAllTags(projects);
 
     const filters = {
@@ -38,6 +32,7 @@ export function projectRoutes(config: ConsoleConfig) {
       tag: c.req.query("tag"),
       client: c.req.query("client"),
       q: c.req.query("q"),
+      source: c.req.query("source"),
     };
 
     const hasFilters = Object.values(filters).some((v) => v);
@@ -47,7 +42,8 @@ export function projectRoutes(config: ConsoleConfig) {
       projects: displayed,
       allTags,
       currentFilters: filters,
-      workspace: ws.name,
+      sources: config.sources,
+      activeSourceNames: active.map((s) => s.name),
       demoMode: config.demoMode,
     });
 
@@ -55,52 +51,45 @@ export function projectRoutes(config: ConsoleConfig) {
       layout({
         title: "Projects",
         content,
-        workspaces: config.workspaces,
-        currentWorkspace: ws.name,
+        sources: config.sources,
+        activeSourceNames: active.map((s) => s.name),
         currentPath: "/projects",
+        demoMode: config.demoMode,
       })
     );
   });
 
-  // Project detail
-  app.get("/projects/:id", (c) => {
-    const ws = resolveWorkspace(c.req.query("ws"));
+  // Project detail (source-scoped)
+  app.get("/projects/:source/:id", (c) => {
+    const active = activeSources(c, config);
+    const sourceName = sanitizePathSegment(c.req.param("source"));
     const projectId = sanitizePathSegment(c.req.param("id"));
 
-    if (!projectId) {
-      return c.html(
-        layout({
-          title: "Not Found",
-          content: `<h1>Not found</h1><p><a href="/projects?ws=${escapeHtml(ws.name)}">Back to projects</a></p>`,
-          workspaces: config.workspaces,
-          currentWorkspace: ws.name,
-          currentPath: "/projects",
-          }),
-        404
-      );
+    if (!sourceName || !projectId) {
+      return notFound(c, config, active, "Not found");
     }
 
-    const projects = loadProjectIndex(ws);
+    const src = findSource(config.sources, sourceName);
+    if (!src) {
+      return notFound(c, config, active, `Source "${escapeHtml(sourceName)}" not found.`);
+    }
+
+    const projects = loadProjectsFromSources([src]);
     const project = getProjectById(projects, projectId);
 
     if (!project) {
-      return c.html(
-        layout({
-          title: "Not Found",
-          content: `<h1>Project not found</h1><p>No project with ID "${escapeHtml(projectId)}" exists.</p><p><a href="/projects?ws=${escapeHtml(ws.name)}">Back to projects</a></p>`,
-          workspaces: config.workspaces,
-          currentWorkspace: ws.name,
-          currentPath: "/projects",
-          }),
-        404
+      return notFound(
+        c,
+        config,
+        active,
+        `No project with ID "${escapeHtml(projectId)}" exists in source "${escapeHtml(sourceName)}".`
       );
     }
 
-    const projectDir = getProjectPath(ws, projectId);
+    const projectDir = getProjectPath(src, projectId)!;
     const contextHtml = readAndRenderMarkdown(join(projectDir, "CONTEXT.md"));
     const referenceHtml = readAndRenderMarkdown(join(projectDir, "REFERENCE.md"));
 
-    // List sessions
     const sessionsDir = join(projectDir, "sessions");
     const sessions: { name: string; period: string }[] = [];
     if (existsSync(sessionsDir)) {
@@ -119,73 +108,45 @@ export function projectRoutes(config: ConsoleConfig) {
       contextHtml,
       referenceHtml,
       sessions,
-      workspace: ws.name,
+      sourceName: src.name,
     });
 
     return c.html(
       layout({
         title: project.name,
         content,
-        workspaces: config.workspaces,
-        currentWorkspace: ws.name,
-        currentPath: `/projects/${projectId}`,
+        sources: config.sources,
+        activeSourceNames: active.map((s) => s.name),
+        currentPath: `/projects/${src.name}/${projectId}`,
+        demoMode: config.demoMode,
       })
     );
   });
 
   // Session detail
-  app.get("/projects/:id/sessions/:period", (c) => {
-    const ws = resolveWorkspace(c.req.query("ws"));
+  app.get("/projects/:source/:id/sessions/:period", (c) => {
+    const active = activeSources(c, config);
+    const sourceName = sanitizePathSegment(c.req.param("source"));
     const projectId = sanitizePathSegment(c.req.param("id"));
     const period = sanitizePathSegment(c.req.param("period"));
 
-    if (!projectId || !period) {
-      return c.html(
-        layout({
-          title: "Not Found",
-          content: `<h1>Not found</h1>`,
-          workspaces: config.workspaces,
-          currentWorkspace: ws.name,
-          currentPath: "/projects",
-          }),
-        404
-      );
+    if (!sourceName || !projectId || !period) {
+      return notFound(c, config, active, "Not found");
     }
 
-    const projects = loadProjectIndex(ws);
+    const src = findSource(config.sources, sourceName);
+    if (!src) return notFound(c, config, active, `Source "${escapeHtml(sourceName)}" not found.`);
+
+    const projects = loadProjectsFromSources([src]);
     const project = getProjectById(projects, projectId);
+    if (!project) return notFound(c, config, active, "Project not found.");
 
-    if (!project) {
-      return c.html(
-        layout({
-          title: "Not Found",
-          content: `<h1>Project not found</h1>`,
-          workspaces: config.workspaces,
-          currentWorkspace: ws.name,
-          currentPath: "/projects",
-          }),
-        404
-      );
-    }
-
-    const sessionFile = join(
-      getProjectPath(ws, projectId),
-      "sessions",
-      `${period}.md`
-    );
+    const projectDir = getProjectPath(src, projectId)!;
+    const sessionFile = join(projectDir, "sessions", `${period}.md`);
     const contentHtml = readAndRenderMarkdown(sessionFile);
 
     if (!contentHtml) {
-      return c.html(
-        layout({
-          title: "Not Found",
-          content: `<h1>Session not found</h1><p>No session file for period "${escapeHtml(period)}".</p>`,
-          workspaces: config.workspaces,
-          currentWorkspace: ws.name,
-          currentPath: `/projects/${projectId}`,
-          }),
-        404
-      );
+      return notFound(c, config, active, `No session file for period "${escapeHtml(period)}".`);
     }
 
     const content = sessionDetailView({
@@ -193,19 +154,39 @@ export function projectRoutes(config: ConsoleConfig) {
       projectName: project.name,
       period,
       contentHtml,
-      workspace: ws.name,
+      sourceName: src.name,
     });
 
     return c.html(
       layout({
         title: `${project.name} — Session ${period}`,
         content,
-        workspaces: config.workspaces,
-        currentWorkspace: ws.name,
-        currentPath: `/projects/${projectId}/sessions`,
+        sources: config.sources,
+        activeSourceNames: active.map((s) => s.name),
+        currentPath: `/projects/${src.name}/${projectId}/sessions`,
+        demoMode: config.demoMode,
       })
     );
   });
 
   return app;
+}
+
+function notFound(
+  c: import("hono").Context,
+  config: ConsoleConfig,
+  active: import("../config.js").Source[],
+  message: string
+) {
+  return c.html(
+    layout({
+      title: "Not Found",
+      content: `<h1>Not found</h1><p>${message}</p><p><a href="/projects">Back to projects</a></p>`,
+      sources: config.sources,
+      activeSourceNames: active.map((s) => s.name),
+      currentPath: "/projects",
+      demoMode: config.demoMode,
+    }),
+    404
+  );
 }

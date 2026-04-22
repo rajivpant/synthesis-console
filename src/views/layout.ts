@@ -1,36 +1,27 @@
-import type { WorkspaceConfig } from "../config.js";
+import type { Source } from "../config.js";
 import { escapeHtml, escapeAttr } from "../utils.js";
+import { SOURCES_COOKIE } from "../active-sources.js";
 import pkg from "../../package.json";
-
-const DEMO_WORKSPACE_NAME = "demo";
 
 export function layout(opts: {
   title: string;
   content: string;
-  workspaces: WorkspaceConfig[];
-  currentWorkspace: string;
+  sources: Source[];
+  activeSourceNames: string[];
   currentPath?: string;
+  demoMode: boolean;
 }): string {
-  const isDemo = opts.currentWorkspace === DEMO_WORKSPACE_NAME;
+  const visibleSources = opts.demoMode
+    ? opts.sources.filter((s) => s.demo === true)
+    : opts.sources;
 
-  const wsSelector =
-    opts.workspaces.length > 1
-      ? `<li>
-          <select id="workspace-select" onchange="switchWorkspace(this.value)" aria-label="Workspace">
-            ${opts.workspaces
-              .map(
-                (ws) =>
-                  `<option value="${escapeAttr(ws.name)}"${ws.name === opts.currentWorkspace ? " selected" : ""}>${escapeHtml(ws.name)}</option>`
-              )
-              .join("\n")}
-          </select>
-        </li>`
-      : "";
+  const isDemoActive =
+    opts.demoMode ||
+    opts.activeSourceNames.some((n) => opts.sources.find((s) => s.name === n)?.demo === true);
 
-  const nav = buildNav(opts.currentPath || "", opts.currentWorkspace);
-  const demoBadge = isDemo
-    ? '<span class="badge badge-demo">DEMO</span>'
-    : "";
+  const demoBadge = isDemoActive ? '<span class="badge badge-demo">DEMO</span>' : "";
+  const nav = buildNav(opts.currentPath || "");
+  const picker = buildSourcePicker(visibleSources, opts.activeSourceNames, opts.demoMode);
 
   return `<!DOCTYPE html>
 <html lang="en" data-theme="light">
@@ -45,11 +36,11 @@ export function layout(opts: {
   <header class="container">
     <nav>
       <ul>
-        <li><a href="/projects?ws=${escapeAttr(opts.currentWorkspace)}" class="logo"><strong>Synthesis Console</strong></a> ${demoBadge}</li>
+        <li><a href="/projects" class="logo"><strong>Synthesis Console</strong></a> ${demoBadge}</li>
       </ul>
       <ul>
         ${nav}
-        ${wsSelector}
+        ${picker}
       </ul>
     </nav>
   </header>
@@ -59,22 +50,16 @@ export function layout(opts: {
   <footer class="container">
     <small>Synthesis Console v${pkg.version} — local-first tooling for synthesis engineering</small>
   </footer>
-  <script>
-    function switchWorkspace(ws) {
-      const url = new URL(window.location);
-      url.searchParams.set('ws', ws);
-      window.location = url.toString();
-    }
-  </script>
+  <script>${layoutScript()}</script>
 </body>
 </html>`;
 }
 
-function buildNav(currentPath: string, ws: string): string {
+function buildNav(currentPath: string): string {
   const links = [
-    { href: `/projects?ws=${ws}`, label: "Projects", match: "/projects" },
-    { href: `/plans?ws=${ws}`, label: "Plans", match: "/plans" },
-    { href: `/lessons?ws=${ws}`, label: "Lessons", match: "/lessons" },
+    { href: "/projects", label: "Projects", match: "/projects" },
+    { href: "/plans", label: "Plans", match: "/plans" },
+    { href: "/lessons", label: "Lessons", match: "/lessons" },
   ];
 
   return links
@@ -83,4 +68,101 @@ function buildNav(currentPath: string, ws: string): string {
       return `<li><a href="${link.href}"${active}>${link.label}</a></li>`;
     })
     .join("\n");
+}
+
+function buildSourcePicker(
+  sources: Source[],
+  activeNames: string[],
+  demoMode: boolean
+): string {
+  if (sources.length <= 1) return "";
+
+  const activeSet = new Set(activeNames);
+  const activeCount = sources.filter((s) => activeSet.has(s.name)).length;
+  const summary =
+    activeCount === sources.length
+      ? "All sources"
+      : activeCount === 0
+        ? "No sources"
+        : activeCount === 1
+          ? sources.find((s) => activeSet.has(s.name))?.display_name ||
+            sources.find((s) => activeSet.has(s.name))?.name ||
+            "1 source"
+          : `${activeCount} sources`;
+
+  const disabled = demoMode ? " disabled" : "";
+  const hint = demoMode
+    ? `<p><small>Demo mode is active; source selection is disabled.</small></p>`
+    : "";
+
+  const items = sources
+    .map((s) => {
+      const checked = activeSet.has(s.name) ? " checked" : "";
+      const label = escapeHtml(s.display_name || s.name);
+      const demoLabel = s.demo
+        ? ' <span class="badge badge-demo" style="font-size:0.7em">demo</span>'
+        : "";
+      return `<li>
+        <label>
+          <input type="checkbox" name="source" value="${escapeAttr(s.name)}"${checked}${disabled}>
+          ${label}${demoLabel}
+        </label>
+      </li>`;
+    })
+    .join("\n");
+
+  return `<li>
+    <details class="source-picker" role="list">
+      <summary aria-haspopup="listbox">${escapeHtml(summary)}</summary>
+      <ul role="listbox" aria-label="Active sources">
+        ${items}
+      </ul>
+      ${hint}
+    </details>
+  </li>`;
+}
+
+function layoutScript(): string {
+  return `
+    (function() {
+      const COOKIE = ${JSON.stringify(SOURCES_COOKIE)};
+
+      function setCookie(value) {
+        // Cookie lasts 1 year. Local-only tool; no Secure/HttpOnly needed.
+        document.cookie = COOKIE + '=' + encodeURIComponent(value) + '; path=/; max-age=31536000; samesite=lax';
+      }
+
+      function currentSelection() {
+        return Array.from(document.querySelectorAll('input[type=checkbox][name=source]'))
+          .filter(cb => cb.checked)
+          .map(cb => cb.value);
+      }
+
+      const picker = document.querySelector('.source-picker');
+      if (picker) {
+        picker.addEventListener('change', function(e) {
+          if (e.target && e.target.name === 'source') {
+            const names = currentSelection();
+            setCookie(names.join(','));
+            try { localStorage.setItem(COOKIE, names.join(',')); } catch (_) {}
+            // Reload to re-fetch content for the new selection.
+            const url = new URL(window.location.href);
+            url.searchParams.delete('sources');
+            window.location.href = url.toString();
+          }
+        });
+      }
+
+      // On first visit with nothing checked but localStorage populated, sync cookie and reload.
+      try {
+        if (!document.cookie.split('; ').some(c => c.startsWith(COOKIE + '='))) {
+          const cached = localStorage.getItem(COOKIE);
+          if (cached) {
+            setCookie(cached);
+            window.location.reload();
+          }
+        }
+      } catch (_) {}
+    })();
+  `;
 }

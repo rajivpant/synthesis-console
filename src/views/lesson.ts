@@ -1,3 +1,4 @@
+import type { Source } from "../config.js";
 import { escapeHtml, escapeAttr } from "../utils.js";
 
 export interface LessonEntry {
@@ -5,34 +6,46 @@ export interface LessonEntry {
   filename: string;
   date: string;
   title: string;
+  source: string;
 }
 
 export function lessonListView(opts: {
   lessons: LessonEntry[];
-  workspace: string;
+  sources: Source[];
 }): string {
-  const { lessons, workspace } = opts;
+  const { lessons, sources } = opts;
 
   if (lessons.length === 0) {
-    return `<h1>Lessons</h1><p>No lessons found.</p>`;
+    return `<h1>Lessons</h1><p>No lessons found in the selected sources.</p>`;
   }
 
+  const sourceByName = new Map(sources.map((s) => [s.name, s]));
+  const showSource = sources.length > 1;
+
   const rows = lessons
-    .map(
-      (l) => `
-      <tr>
-        <td><time>${escapeHtml(l.date)}</time></td>
-        <td><a href="/lessons/${encodeURIComponent(l.slug)}?ws=${escapeAttr(workspace)}">${escapeHtml(l.title)}</a></td>
-      </tr>`
-    )
+    .map((l) => {
+      const src = sourceByName.get(l.source);
+      const sourceLabel = src ? escapeHtml(src.display_name || src.name) : escapeHtml(l.source);
+      const sourceCell = showSource
+        ? `<td><span class="source-badge" title="Source: ${escapeAttr(l.source)}">${sourceLabel}</span></td>`
+        : "";
+      return `
+        <tr>
+          <td><time>${escapeHtml(l.date)}</time></td>
+          <td><a href="/lessons/${encodeURIComponent(l.source)}/${encodeURIComponent(l.slug)}">${escapeHtml(l.title)}</a></td>
+          ${sourceCell}
+        </tr>`;
+    })
     .join("\n");
+
+  const sourceColHeader = showSource ? "<th>Source</th>" : "";
 
   return `
     <h1>Lessons <small>(${lessons.length})</small></h1>
     <p>Cross-project lessons learned, sorted by date (most recent first).</p>
-    <table>
+    <table class="lessons-table">
       <thead>
-        <tr><th>Date</th><th>Lesson</th></tr>
+        <tr><th>Date</th><th>Lesson</th>${sourceColHeader}</tr>
       </thead>
       <tbody>
         ${rows}
@@ -44,12 +57,12 @@ export function lessonListView(opts: {
 export function lessonDetailView(opts: {
   lesson: LessonEntry;
   contentHtml: string;
-  workspace: string;
 }): string {
   return `
     <nav aria-label="breadcrumb">
       <ul>
-        <li><a href="/lessons?ws=${escapeAttr(opts.workspace)}">Lessons</a></li>
+        <li><a href="/lessons">Lessons</a></li>
+        <li><span class="source-badge" title="Source: ${escapeAttr(opts.lesson.source)}">${escapeHtml(opts.lesson.source)}</span></li>
         <li>${escapeHtml(opts.lesson.title)}</li>
       </ul>
     </nav>
