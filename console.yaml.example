@@ -4,6 +4,11 @@
 # This template mirrors the author's personal + clients layout with sanitized names;
 # you are welcome to use your own structure. See docs/layouts.md for alternatives.
 #
+# Once this file points at your sources, the console will ALSO surface any
+# `initiatives:` section declared in each source's projects/index.yaml
+# (v0.3+). Initiatives are portfolio-level containers that group related
+# projects — target ≤5 per source. See docs/initiatives.md.
+#
 # Schema reference (v0.2+):
 #   sources[]:
 #     name:            unique identifier, used in URLs and the cookie (required)

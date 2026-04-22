@@ -28,9 +28,29 @@ export interface Project {
   client?: string;
   superseded_by?: string;
   technologies?: string[];
+  initiative?: string;
 }
 
 export interface ProjectWithSource extends Project {
+  _source: string;
+}
+
+export interface Initiative {
+  id: string;
+  name: string;
+  status: ProjectStatus;
+  description?: string;
+  started_date?: string;
+  target_date?: string;
+  completed_date?: string;
+  lead?: string;
+  stakeholder?: string;
+  tags?: string[];
+  related?: string[];
+  links?: Record<string, string>;
+}
+
+export interface InitiativeWithSource extends Initiative {
   _source: string;
 }
 
@@ -40,6 +60,16 @@ function toStr(val: unknown): string | undefined {
     return val.toISOString().slice(0, 10);
   }
   return String(val);
+}
+
+function normalizeLinks(raw: unknown): Record<string, string> | undefined {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(raw)) {
+    if (typeof v === "string") out[k] = v;
+    else if (v != null) out[k] = String(v);
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
 }
 
 function normalizeProject(raw: Record<string, unknown>): Project {
@@ -61,6 +91,24 @@ function normalizeProject(raw: Record<string, unknown>): Project {
     technologies: Array.isArray(raw.technologies)
       ? raw.technologies.map(String)
       : undefined,
+    initiative: toStr(raw.initiative),
+  };
+}
+
+function normalizeInitiative(raw: Record<string, unknown>): Initiative {
+  return {
+    id: String(raw.id || ""),
+    name: String(raw.name || ""),
+    status: String(raw.status || "active") as ProjectStatus,
+    description: toStr(raw.description),
+    started_date: toStr(raw.started_date),
+    target_date: toStr(raw.target_date),
+    completed_date: toStr(raw.completed_date),
+    lead: toStr(raw.lead),
+    stakeholder: toStr(raw.stakeholder),
+    tags: Array.isArray(raw.tags) ? raw.tags.map(String) : undefined,
+    related: Array.isArray(raw.related) ? raw.related.map(String) : undefined,
+    links: normalizeLinks(raw.links),
   };
 }
 
@@ -83,6 +131,25 @@ export function loadProjectIndex(src: Source): Project[] {
   }
 }
 
+export function loadInitiativeIndex(src: Source): Initiative[] {
+  const projectsDir = getProjectsPath(src);
+  if (!projectsDir) return [];
+
+  const indexPath = `${projectsDir}/index.yaml`;
+  try {
+    const raw = readFileSync(indexPath, "utf-8");
+    const parsed = yaml.load(raw, { json: true }) as { initiatives?: Record<string, unknown>[] };
+    if (!Array.isArray(parsed?.initiatives)) return [];
+    return parsed.initiatives.map(normalizeInitiative);
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException)?.code;
+    if (code !== "ENOENT") {
+      console.warn(`Failed to load initiatives at ${indexPath}: ${err instanceof Error ? err.message : err}`);
+    }
+    return [];
+  }
+}
+
 export function loadProjectsFromSources(sources: Source[]): ProjectWithSource[] {
   const out: ProjectWithSource[] = [];
   for (const src of sources) {
@@ -94,11 +161,29 @@ export function loadProjectsFromSources(sources: Source[]): ProjectWithSource[] 
   return out;
 }
 
+export function loadInitiativesFromSources(sources: Source[]): InitiativeWithSource[] {
+  const out: InitiativeWithSource[] = [];
+  for (const src of sources) {
+    const initiatives = loadInitiativeIndex(src);
+    for (const i of initiatives) {
+      out.push({ ...i, _source: src.name });
+    }
+  }
+  return out;
+}
+
 export function getProjectById(
   projects: Project[],
   id: string
 ): Project | undefined {
   return projects.find((p) => p.id === id);
+}
+
+export function getInitiativeById(
+  initiatives: Initiative[],
+  id: string
+): Initiative | undefined {
+  return initiatives.find((i) => i.id === id);
 }
 
 export function groupByStatus(
@@ -144,6 +229,7 @@ export function filterProjects<T extends Project>(
     client?: string;
     q?: string;
     source?: string;
+    initiative?: string;
   }
 ): T[] {
   let filtered = projects;
@@ -169,6 +255,15 @@ export function filterProjects<T extends Project>(
     filtered = filtered.filter(
       (p) => "_source" in p && sources.includes((p as unknown as ProjectWithSource)._source)
     );
+  }
+
+  if (opts.initiative) {
+    if (opts.initiative === "_ungrouped") {
+      filtered = filtered.filter((p) => !p.initiative);
+    } else {
+      const initiatives = opts.initiative.split(",");
+      filtered = filtered.filter((p) => p.initiative && initiatives.includes(p.initiative));
+    }
   }
 
   if (opts.q) {

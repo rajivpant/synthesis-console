@@ -122,9 +122,31 @@ Defaults to 5555. If the port is busy, auto-increments (5556, 5557, ...) and pri
 
 All paths use `~/` expansion, so the same config file works across machines with different usernames.
 
+### Initiatives (v0.3+)
+
+Optional portfolio-level containers that group related projects. Declare them in each source's `projects/index.yaml`:
+
+```yaml
+initiatives:
+  - id: platform
+    name: Platform & Infrastructure
+    status: active
+    description: Core services, reliability, observability.
+    lead: Alex
+
+projects:
+  - id: logging-unification
+    initiative: platform
+    name: Unified Logging
+    status: active
+    ...
+```
+
+Target ≤5 initiatives per source. Projects without an `initiative:` field show in an "Ungrouped" section. A new **Initiatives** tab in the nav lets you see portfolio-level status at a glance; the **Projects** view automatically groups by initiative when any are declared. See [docs/initiatives.md](docs/initiatives.md) for the full reference.
+
 ### Migrating from v0.1
 
-v0.1 used a `workspaces:` schema with a single-workspace-at-a-time UI. v0.2 replaces that with `sources:` and multi-source composition. See [docs/migration-v0.2.md](docs/migration-v0.2.md) for the 60-second migration.
+v0.1 used a `workspaces:` schema with a single-workspace-at-a-time UI. v0.2 replaces that with `sources:` and multi-source composition. See [docs/migration-v0.2.md](docs/migration-v0.2.md) for the 60-second migration. v0.3 adds initiatives as a purely additive feature — no migration required.
 
 ## Auto-start on Login
 

@@ -3,6 +3,7 @@ import { serveStatic } from "hono/bun";
 import { createServer } from "net";
 import { loadConfig, displayName } from "./config.js";
 import { projectRoutes } from "./routes/projects.js";
+import { initiativeRoutes } from "./routes/initiatives.js";
 import { lessonRoutes } from "./routes/lessons.js";
 import { planRoutes } from "./routes/plans.js";
 import { layout } from "./views/layout.js";
@@ -28,6 +29,7 @@ app.use("/style.css", serveStatic({ root: "./public" }));
 app.get("/", (c) => c.redirect("/projects"));
 
 app.route("/", projectRoutes(config));
+app.route("/", initiativeRoutes(config));
 app.route("/", lessonRoutes(config));
 app.route("/", planRoutes(config));
 

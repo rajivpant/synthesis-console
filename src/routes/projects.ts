@@ -5,11 +5,12 @@ import type { ConsoleConfig } from "../config.js";
 import { getProjectPath, findSource } from "../config.js";
 import {
   loadProjectsFromSources,
+  loadInitiativesFromSources,
   getProjectById,
   getAllTags,
   filterProjects,
 } from "../parsers/yaml.js";
-import type { ProjectWithSource } from "../parsers/yaml.js";
+import type { ProjectWithSource, InitiativeWithSource } from "../parsers/yaml.js";
 import { readAndRenderMarkdown } from "../parsers/markdown.js";
 import { layout } from "../views/layout.js";
 import { projectListView } from "../views/project-list.js";
@@ -25,6 +26,7 @@ export function projectRoutes(config: ConsoleConfig) {
   app.get("/projects", (c) => {
     const active = activeSources(c, config);
     const projects: ProjectWithSource[] = loadProjectsFromSources(active);
+    const initiatives: InitiativeWithSource[] = loadInitiativesFromSources(active);
     const allTags = getAllTags(projects);
 
     const filters = {
@@ -33,10 +35,17 @@ export function projectRoutes(config: ConsoleConfig) {
       client: c.req.query("client"),
       q: c.req.query("q"),
       source: c.req.query("source"),
+      initiative: c.req.query("initiative"),
     };
 
     const hasFilters = Object.values(filters).some((v) => v);
     const displayed = hasFilters ? filterProjects(projects, filters) : projects;
+
+    // Default to grouped-by-initiative if any initiatives exist and no explicit preference.
+    const groupParam = c.req.query("group");
+    const groupByInitiative =
+      groupParam === "initiative" ||
+      (groupParam !== "status" && initiatives.length > 0);
 
     const content = projectListView({
       projects: displayed,
@@ -45,6 +54,8 @@ export function projectRoutes(config: ConsoleConfig) {
       sources: config.sources,
       activeSourceNames: active.map((s) => s.name),
       demoMode: config.demoMode,
+      initiatives,
+      groupByInitiative,
     });
 
     return c.html(
@@ -86,6 +97,11 @@ export function projectRoutes(config: ConsoleConfig) {
       );
     }
 
+    const initiatives = loadInitiativesFromSources([src]);
+    const initiative = project.initiative
+      ? initiatives.find((i) => i.id === project.initiative)
+      : undefined;
+
     const projectDir = getProjectPath(src, projectId)!;
     const contextHtml = readAndRenderMarkdown(join(projectDir, "CONTEXT.md"));
     const referenceHtml = readAndRenderMarkdown(join(projectDir, "REFERENCE.md"));
@@ -109,6 +125,7 @@ export function projectRoutes(config: ConsoleConfig) {
       referenceHtml,
       sessions,
       sourceName: src.name,
+      initiative,
     });
 
     return c.html(

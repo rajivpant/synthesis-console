@@ -57,6 +57,7 @@ export function layout(opts: {
 
 function buildNav(currentPath: string): string {
   const links = [
+    { href: "/initiatives", label: "Initiatives", match: "/initiatives" },
     { href: "/projects", label: "Projects", match: "/projects" },
     { href: "/plans", label: "Plans", match: "/plans" },
     { href: "/lessons", label: "Lessons", match: "/lessons" },

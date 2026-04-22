@@ -26,6 +26,12 @@ Full rationale: `~/workspaces/rajiv/ai-knowledge-rajiv/projects/synthesis-consol
 
 Abstract pattern (mechanism-vs-policy, capabilities-via-presence, source attribution): `~/workspaces/rajiv/ai-knowledge-rajiv/lessons/2026-04-22-symmetric-composable-sources.md`.
 
+### Initiatives (v0.3+)
+
+Inside each source's `projects/index.yaml`, an optional `initiatives:` section declares portfolio-level containers. Projects claim membership via an optional `initiative: <id>` field. The Initiatives nav item, `/initiatives/:source/:id` detail pages, and the grouped projects view all consume this data. Target ≤5 initiatives per source; the convention is curation-not-clustering. Projects without membership render in an "Ungrouped" section.
+
+Full rationale: `~/workspaces/rajiv/ai-knowledge-rajiv/projects/synthesis-console-build/adr-002-initiatives.md`.
+
 ## Running
 
 ```bash
@@ -42,9 +48,9 @@ src/
   config.ts        — Config loader, source schema, auto-detect, path helpers
   active-sources.ts — Cookie/query/default resolution of active sources per request
   utils.ts         — Shared escapeHtml, escapeAttr, sanitizePathSegment
-  routes/          — Route handlers (projects, lessons, plans). Each unions across active sources.
-  parsers/         — YAML and markdown parsing
-  views/           — HTML template functions (layout has multi-select picker)
+  routes/          — Route handlers (projects, initiatives, lessons, plans). Each unions across active sources.
+  parsers/         — YAML (projects + initiatives) and markdown parsing
+  views/           — HTML template functions (layout has multi-select picker; initiative cards and detail views)
 public/
   style.css        — Custom styles (badges, source-badge, source-picker, layout, filters, demo banner)
 demo/
@@ -64,9 +70,11 @@ The `demo/` directory also serves as documentation-by-example of synthesis proje
 
 ## URL Structure
 
-- `/projects` — union across active sources with source badges
-- `/projects/:source/:id` — project detail (source-scoped)
+- `/projects` — union across active sources; grouped by initiative by default when initiatives exist
+- `/projects/:source/:id` — project detail (source-scoped); shows initiative link when project has one
 - `/projects/:source/:id/sessions/:period` — session detail
+- `/initiatives` — initiative cards across active sources (v0.3+)
+- `/initiatives/:source/:id` — initiative detail: description, metadata, member projects, recent sessions
 - `/lessons` — union
 - `/lessons/:source/:slug` — lesson detail (source-scoped)
 - `/plans` — union (calendar picks first source per date; duplicates listed below)
@@ -75,6 +83,8 @@ The `demo/` directory also serves as documentation-by-example of synthesis proje
 Query params:
 - `?sources=a,b` — override cookie for this session (useful for bookmarking)
 - `?source=a,b` — filter within the already-active sources (projects list only)
+- `?group=initiative` or `?group=status` — override default grouping in `/projects`
+- `?initiative=<id>` — filter projects to one initiative; `_ungrouped` shows unassigned
 - `?status=`, `?tag=`, `?client=`, `?q=` — standard filters
 
 ## Security

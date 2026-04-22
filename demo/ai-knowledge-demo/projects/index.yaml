@@ -1,6 +1,53 @@
 # Demo Project Index
 # Sample data for synthesis-console demo mode.
 # This file illustrates the index.yaml conventions used in synthesis project management.
+#
+# `initiatives:` (optional, v0.3+): portfolio-level containers that group related projects.
+# Projects claim membership via an optional `initiative:` field.
+
+initiatives:
+  - id: platform-reliability
+    name: Platform Reliability & Observability
+    description: >
+      Keep the platform fast, stable, and measurable. Groups infrastructure
+      maintenance, performance work, and observability tooling.
+    status: active
+    lead: Alex Rivera
+    tags:
+      - infrastructure
+      - reliability
+
+  - id: developer-experience
+    name: Developer Experience
+    description: >
+      Tools, skills, workspaces, and documentation that make engineers
+      productive. The internal-facing side of the discipline.
+    status: active
+    lead: Jamie Chen
+    tags:
+      - tooling
+      - developer-experience
+      - synthesis-engineering
+
+  - id: content-and-publishing
+    name: Content & Publishing
+    description: >
+      Multi-site article workflow and knowledge base compilation. Everything
+      that gets content from source files to readers.
+    status: active
+    lead: Morgan Lee
+    tags:
+      - content
+      - publishing
+
+  - id: legacy-migrations
+    name: Legacy Migrations
+    description: >
+      One-time transitions away from prior systems. Archived when their
+      target state is achieved.
+    status: completed
+    tags:
+      - migration
 
 projects:
   # ============================================================================
@@ -8,6 +55,7 @@ projects:
   # ============================================================================
 
   - id: synthesis-console
+    initiative: developer-experience
     name: "Synthesis Console — Local Dashboard for Project Management"
     status: active
     started_date: 2026-04-10
@@ -26,6 +74,7 @@ projects:
     last_session: "2026-04-12"
 
   - id: synthesis-skills-ecosystem
+    initiative: developer-experience
     name: "Synthesis Skills Ecosystem — Agent-Native Skill Authoring"
     status: active
     started_date: 2026-01-15
@@ -44,6 +93,7 @@ projects:
     last_session: "2026-04-11"
 
   - id: content-publishing-pipeline
+    initiative: content-and-publishing
     name: "Content Publishing Pipeline — Multi-Site Article Workflow"
     status: active
     started_date: 2026-02-01
@@ -60,6 +110,7 @@ projects:
     last_session: "2026-04-08"
 
   - id: knowledge-base-compiler
+    initiative: content-and-publishing
     name: "Knowledge Base Compiler — Source-to-Compiled Optimization"
     status: active
     started_date: 2026-03-10
@@ -80,6 +131,7 @@ projects:
   # ============================================================================
 
   - id: observability-dashboard
+    initiative: platform-reliability
     name: "Observability Dashboard — Session Metrics and Insights"
     status: new
     started_date: 2026-04-11
@@ -95,6 +147,7 @@ projects:
       - synthesis-console
 
   - id: team-onboarding-guide
+    initiative: developer-experience
     name: "Team Onboarding Guide — Synthesis Engineering for New Practitioners"
     status: new
     started_date: 2026-04-09
@@ -111,6 +164,7 @@ projects:
   # ============================================================================
 
   - id: mobile-companion-app
+    initiative: developer-experience
     name: "Mobile Companion App — Read-Only Project Viewer"
     status: paused
     started_date: 2026-03-01
@@ -126,6 +180,7 @@ projects:
     last_session: "2026-03-15"
 
   - id: voice-interface-prototype
+    initiative: developer-experience
     name: "Voice Interface Prototype — Spoken Project Updates"
     status: paused
     started_date: 2026-02-20
@@ -142,6 +197,7 @@ projects:
   # ============================================================================
 
   - id: workspace-orchestration
+    initiative: developer-experience
     name: "Workspace Orchestration — Multi-Repo Coordination"
     status: ongoing
     started_date: 2025-11-20
@@ -159,6 +215,7 @@ projects:
     last_session: "2026-04-11"
 
   - id: daily-planning-system
+    initiative: developer-experience
     name: "Daily Planning System — Context-Aware Day Management"
     status: ongoing
     started_date: 2025-12-01
@@ -174,6 +231,7 @@ projects:
     last_session: "2026-04-12"
 
   - id: infrastructure-maintenance
+    initiative: platform-reliability
     name: "Infrastructure Maintenance — CI/CD and Dependency Updates"
     status: ongoing
     started_date: 2025-10-01
@@ -190,6 +248,7 @@ projects:
   # ============================================================================
 
   - id: api-v3-migration
+    initiative: legacy-migrations
     name: "API v3 Migration — REST to GraphQL Conversion"
     status: completed
     started_date: 2025-11-01
@@ -206,6 +265,7 @@ projects:
     key_result: "23 endpoints migrated, 40% reduction in API calls via query batching"
 
   - id: design-system-unification
+    initiative: developer-experience
     name: "Design System Unification — Cross-Site Component Library"
     status: completed
     started_date: 2025-12-10
@@ -222,6 +282,7 @@ projects:
     key_result: "Shared component library serving 4 sites, 60% reduction in CSS duplication"
 
   - id: documentation-overhaul
+    initiative: developer-experience
     name: "Documentation Overhaul — README and Runbook Standardization"
     status: completed
     started_date: 2026-01-05
@@ -239,6 +300,7 @@ projects:
       - synthesis-skills-ecosystem
 
   - id: performance-audit
+    initiative: platform-reliability
     name: "Performance Audit — Build Time and Bundle Optimization"
     status: completed
     started_date: 2026-02-01
@@ -258,6 +320,7 @@ projects:
   # ============================================================================
 
   - id: legacy-dashboard-v1
+    initiative: legacy-migrations
     name: "Legacy Dashboard v1 — Original Python Prototype"
     status: archived
     started_date: 2025-06-01
@@ -273,6 +336,7 @@ projects:
     outcome: superseded
 
   - id: monorepo-experiment
+    initiative: legacy-migrations
     name: "Monorepo Experiment — Evaluated and Rejected"
     status: archived
     started_date: 2025-07-01
@@ -291,6 +355,7 @@ projects:
   # ============================================================================
 
   - id: manual-runbook-system
+    initiative: legacy-migrations
     name: "Manual Runbook System — Replaced by Agent Skills"
     status: superseded
     started_date: 2025-04-01

@@ -269,6 +269,33 @@ sources:
 
 ---
 
+## Initiatives (v0.3+)
+
+Once your sources are configured, you can optionally add portfolio-level **initiatives** inside each source's `projects/index.yaml`. Initiatives group related projects under a single unit of work — target ≤5 per source. See [initiatives.md](initiatives.md) for the full reference.
+
+Quick shape:
+
+```yaml
+# Inside a source's projects/index.yaml
+initiatives:
+  - id: platform
+    name: Platform & Infrastructure
+    status: active
+    description: Core services, reliability, observability.
+    lead: Alex
+
+projects:
+  - id: logging-unification
+    initiative: platform
+    name: Unified Logging
+    status: active
+    ...
+```
+
+Initiatives are optional. A source with no `initiatives:` section works exactly as before.
+
+---
+
 ## Mixing and matching
 
 All the layouts above are just patterns. Your real config can mix them:
@@ -287,6 +314,7 @@ The console makes no assumptions — each source declares its own paths, and the
 - **My source doesn't appear in the lessons or plans view.** Check that the directory exists and filenames match the expected pattern (`YYYY-MM-DD-*.md` for lessons, `YYYY-MM-DD.md` for plans).
 - **The picker shows all sources when I want a subset active.** First-run selection is driven by `default_active: true`. After first run, selection persists in the `sc_sources` cookie; clear it or re-select.
 - **I want to share a specific view via URL.** Append `?sources=a,b` to any page URL to override the cookie for that session.
+- **My project doesn't show under its initiative.** Check spelling — the `initiative:` value on the project must exactly match an `id:` in the `initiatives:` list. Unknown values fall through to Ungrouped.
 
 ---
 

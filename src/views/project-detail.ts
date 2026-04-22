@@ -1,4 +1,4 @@
-import type { Project } from "../parsers/yaml.js";
+import type { Project, Initiative } from "../parsers/yaml.js";
 import { escapeHtml, escapeAttr } from "../utils.js";
 
 const STATUS_COLORS: Record<string, string> = {
@@ -17,8 +17,9 @@ export function projectDetailView(opts: {
   referenceHtml: string | null;
   sessions: { name: string; period: string }[];
   sourceName: string;
+  initiative?: Initiative;
 }): string {
-  const { project: p, contextHtml, referenceHtml, sessions, sourceName } = opts;
+  const { project: p, contextHtml, referenceHtml, sessions, sourceName, initiative } = opts;
 
   const statusColor = STATUS_COLORS[p.status] || "gray";
 
@@ -58,6 +59,7 @@ export function projectDetailView(opts: {
         <section>
           <h3>Metadata</h3>
           <div class="sidebar-section"><strong>Source</strong><div>${escapeHtml(sourceName)}</div></div>
+          ${initiative ? `<div class="sidebar-section"><strong>Initiative</strong><div><a href="/initiatives/${escapeAttr(sourceName)}/${escapeAttr(initiative.id)}">${escapeHtml(initiative.name)}</a></div></div>` : ""}
           ${dates}
           ${tags ? `<div class="sidebar-section"><strong>Tags</strong><div>${tags}</div></div>` : ""}
           ${p.client ? `<div class="sidebar-section"><strong>Client</strong><div>${escapeHtml(p.client)}</div></div>` : ""}
