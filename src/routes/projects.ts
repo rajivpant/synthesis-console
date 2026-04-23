@@ -102,6 +102,21 @@ export function projectRoutes(config: ConsoleConfig) {
       ? initiatives.find((i) => i.id === project.initiative)
       : undefined;
 
+    // Resolve related[] project IDs to their source across all active sources,
+    // so cross-workspace related-links work and unknown refs render as plain text.
+    const relatedResolutions = new Map<string, { source: string }>();
+    if (project.related && project.related.length > 0) {
+      const allActive = loadProjectsFromSources(active);
+      for (const ref of project.related) {
+        // Prefer same-source match first, then any active source.
+        const sameSourceHit = allActive.find((p) => p.id === ref && p._source === src.name);
+        const anyHit = sameSourceHit || allActive.find((p) => p.id === ref);
+        if (anyHit) {
+          relatedResolutions.set(ref, { source: anyHit._source });
+        }
+      }
+    }
+
     const projectDir = getProjectPath(src, projectId)!;
     const contextHtml = readAndRenderMarkdown(join(projectDir, "CONTEXT.md"));
     const referenceHtml = readAndRenderMarkdown(join(projectDir, "REFERENCE.md"));
@@ -126,6 +141,7 @@ export function projectRoutes(config: ConsoleConfig) {
       sessions,
       sourceName: src.name,
       initiative,
+      relatedResolutions,
     });
 
     return c.html(

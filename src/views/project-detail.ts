@@ -18,8 +18,9 @@ export function projectDetailView(opts: {
   sessions: { name: string; period: string }[];
   sourceName: string;
   initiative?: Initiative;
+  relatedResolutions?: Map<string, { source: string }>;
 }): string {
-  const { project: p, contextHtml, referenceHtml, sessions, sourceName, initiative } = opts;
+  const { project: p, contextHtml, referenceHtml, sessions, sourceName, initiative, relatedResolutions } = opts;
 
   const statusColor = STATUS_COLORS[p.status] || "gray";
 
@@ -31,10 +32,15 @@ export function projectDetailView(opts: {
     .join(" ");
 
   const relatedLinks = (p.related || [])
-    .map(
-      (r) =>
-        `<a href="/projects/${encodeURIComponent(sourceName)}/${encodeURIComponent(r)}">${escapeHtml(r)}</a>`
-    )
+    .map((r) => {
+      // If we know which source contains this related project, link there.
+      const resolution = relatedResolutions?.get(r);
+      if (resolution) {
+        return `<a href="/projects/${encodeURIComponent(resolution.source)}/${encodeURIComponent(r)}">${escapeHtml(r)}</a>`;
+      }
+      // Unresolved: render as plain text so we don't produce broken links.
+      return `<span class="related-unresolved" title="Not in currently active sources">${escapeHtml(r)}</span>`;
+    })
     .join(", ");
 
   const dates = buildDatesTable(p);

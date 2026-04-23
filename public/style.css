@@ -682,6 +682,13 @@ nav a.active {
   margin: 0.5em 0 0 0;
 }
 
+/* ---- Unresolved Related Ref ---- */
+.related-unresolved {
+  color: #9ca3af;
+  text-decoration: underline dotted #d1d5db;
+  cursor: help;
+}
+
 /* ---- Lessons Table ---- */
 .lessons-table .source-badge {
   white-space: nowrap;
