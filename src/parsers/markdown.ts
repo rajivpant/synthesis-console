@@ -1,5 +1,6 @@
 import { readFileSync, existsSync } from "fs";
 import MarkdownIt from "markdown-it";
+import { escapeAttr } from "../utils.js";
 
 // Markdown is rendered without HTML sanitization. This is deliberate:
 // synthesis-console is a local-only tool that reads the user's own files.
@@ -124,5 +125,151 @@ export function readAndRenderPlanMarkdown(filePath: string): string | null {
     draftNotice + "\n$1"
   );
 
+  // Augment draft message blocks with action buttons (copy / open in Slack / compose email)
+  html = augmentDraftBlocks(html);
+
   return html;
+}
+
+interface SendToTarget {
+  kind: "slack-channel" | "slack-dm" | "slack-user" | "slack-thread" | "email" | "unknown";
+  channelName?: string;
+  channelId?: string;
+  userId?: string;
+  threadTs?: string;
+  email?: string;
+}
+
+function decodeEntities(s: string): string {
+  return s
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'");
+}
+
+function parseSendTo(htmlFragment: string): SendToTarget | null {
+  const text = decodeEntities(htmlFragment.replace(/<[^>]+>/g, " ")).replace(/\s+/g, " ").trim();
+  if (!text) return null;
+
+  // Email — preferred when present, since email syntax can incidentally include @ symbols
+  // that would otherwise get matched as user mentions
+  const emailMatch = text.match(/[\w.+-]+@[\w-]+(?:\.[\w-]+)+/);
+  if (emailMatch && !/@[A-Z0-9]{6,}/.test(text)) {
+    return { kind: "email", email: emailMatch[0] };
+  }
+
+  const threadMatch = text.match(/TS:\s*([\d.]+)/i);
+  const dmIdMatch = text.match(/\b(D[A-Z0-9]{6,})\b/);
+  const userIdMatch = text.match(/\b(U[A-Z0-9]{6,})\b/);
+  const channelMatch = text.match(/#([a-zA-Z][\w-]+)/);
+
+  if (threadMatch) {
+    return {
+      kind: "slack-thread",
+      threadTs: threadMatch[1],
+      channelId: dmIdMatch?.[1],
+      userId: userIdMatch?.[1],
+      channelName: channelMatch?.[1],
+    };
+  }
+
+  if (dmIdMatch) {
+    return { kind: "slack-dm", channelId: dmIdMatch[1], userId: userIdMatch?.[1] };
+  }
+
+  if (userIdMatch) {
+    return { kind: "slack-user", userId: userIdMatch[1] };
+  }
+
+  if (channelMatch) {
+    return { kind: "slack-channel", channelName: channelMatch[1] };
+  }
+
+  return null;
+}
+
+function renderDraftActions(target: SendToTarget | null, subject?: string): string {
+  const parts: string[] = [];
+  parts.push(
+    `<button type="button" class="draft-action draft-copy" data-action="copy" aria-label="Copy draft to clipboard">Copy</button>`
+  );
+
+  if (target) {
+    if (target.kind === "slack-channel" && target.channelName) {
+      const url = `slack://channel?team=&id=&name=${encodeURIComponent(target.channelName)}`;
+      parts.push(
+        `<a class="draft-action draft-slack" href="${escapeAttr(url)}">Open #${escapeAttr(target.channelName)} in Slack</a>`
+      );
+    } else if (target.kind === "slack-dm" && target.channelId) {
+      const url = `slack://channel?id=${encodeURIComponent(target.channelId)}`;
+      parts.push(
+        `<a class="draft-action draft-slack" href="${escapeAttr(url)}">Open DM in Slack</a>`
+      );
+    } else if (target.kind === "slack-user" && target.userId) {
+      const url = `slack://user?id=${encodeURIComponent(target.userId)}`;
+      parts.push(
+        `<a class="draft-action draft-slack" href="${escapeAttr(url)}">Open DM in Slack</a>`
+      );
+    } else if (target.kind === "slack-thread" && (target.channelId || target.userId)) {
+      const idForUrl = target.channelId || target.userId!;
+      const url = `slack://channel?id=${encodeURIComponent(idForUrl)}&message=${encodeURIComponent(target.threadTs || "")}`;
+      parts.push(
+        `<a class="draft-action draft-slack" href="${escapeAttr(url)}">Open thread in Slack</a>`
+      );
+    } else if (target.kind === "email" && target.email) {
+      // Body is filled client-side from the message element; href has subject only as a fallback.
+      const fallbackHref =
+        `mailto:${encodeURIComponent(target.email)}` +
+        (subject ? `?subject=${encodeURIComponent(subject)}` : "");
+      parts.push(
+        `<a class="draft-action draft-email" href="${escapeAttr(fallbackHref)}" data-action="email" data-email="${escapeAttr(target.email)}" data-subject="${escapeAttr(subject || "")}">Compose email</a>`
+      );
+    }
+  }
+
+  return `<div class="draft-actions" role="group" aria-label="Draft actions">${parts.join("")}</div>`;
+}
+
+/**
+ * Walk the rendered HTML, find draft sections (heading-bounded sections that contain a
+ * `<strong>Send to:</strong>` paragraph), and append an action bar after the first
+ * message container (fenced code block or blockquote) following that paragraph.
+ *
+ * Conservative by design: only the first message container per section is augmented,
+ * and a section without a Send-to/Channel marker is left untouched.
+ */
+function augmentDraftBlocks(html: string): string {
+  const sections = html.split(/(<h[1-6][^>]*>[\s\S]*?<\/h[1-6]>)/);
+
+  for (let i = 0; i < sections.length; i++) {
+    const section = sections[i];
+    if (!section || /^<h[1-6]/.test(section)) continue;
+
+    const sendToRegex = /<p>\s*<strong>(?:Send to|Channel):?<\/strong>([\s\S]*?)<\/p>/i;
+    const sendToMatch = section.match(sendToRegex);
+    if (!sendToMatch || sendToMatch.index === undefined) continue;
+
+    const target = parseSendTo(sendToMatch[1]);
+
+    const subjectMatch = section.match(/<p>\s*<strong>Subject:?<\/strong>([\s\S]*?)<\/p>/i);
+    const subject = subjectMatch
+      ? decodeEntities(subjectMatch[1].replace(/<[^>]+>/g, " ")).replace(/\s+/g, " ").trim()
+      : undefined;
+
+    const sendToEnd = sendToMatch.index + sendToMatch[0].length;
+    const before = section.slice(0, sendToEnd);
+    const after = section.slice(sendToEnd);
+
+    const actionsHtml = renderDraftActions(target, subject);
+    const newAfter = after.replace(
+      /(<pre><code[^>]*>[\s\S]*?<\/code><\/pre>|<blockquote>[\s\S]*?<\/blockquote>)/,
+      (match) => match + actionsHtml
+    );
+
+    sections[i] = before + newAfter;
+  }
+
+  return sections.join("");
 }

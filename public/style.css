@@ -708,6 +708,63 @@ nav a.active {
   padding-bottom: 0.3em;
 }
 
+/* ---- Draft message action bar ---- */
+.plan-content pre:has(+ .draft-actions),
+.plan-content blockquote:has(+ .draft-actions) {
+  margin-bottom: 0;
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+.draft-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4em;
+  align-items: center;
+  padding: 0.4em 0.6em;
+  margin-top: -0.1em;
+  margin-bottom: 1.4em;
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-top: none;
+  border-radius: 0 0 4px 4px;
+  font-size: 0.85em;
+}
+
+.draft-actions .draft-action {
+  display: inline-flex;
+  align-items: center;
+  width: auto;
+  flex: 0 0 auto;
+  padding: 0.25em 0.7em;
+  margin: 0;
+  background: #fff;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  cursor: pointer;
+  text-decoration: none;
+  color: #1f2937;
+  font-size: 0.85em;
+  font-family: inherit;
+  font-weight: normal;
+  line-height: 1.4;
+  white-space: nowrap;
+  transition: background-color 0.12s, border-color 0.12s, color 0.12s;
+}
+
+.draft-actions .draft-action:hover {
+  background: #f3f4f6;
+  border-color: #9ca3af;
+  text-decoration: none;
+  color: #111827;
+}
+
+.draft-actions .draft-action.draft-copied {
+  background: #d1fae5;
+  border-color: #10b981;
+  color: #065f46;
+}
+
 /* ---- Footer ---- */
 footer {
   margin-top: 3em;

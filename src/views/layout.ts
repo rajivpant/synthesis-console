@@ -164,6 +164,81 @@ function layoutScript(): string {
           }
         }
       } catch (_) {}
+
+      function getDraftText(actionsEl) {
+        var prev = actionsEl.previousElementSibling;
+        if (!prev) return '';
+        var raw = prev.innerText || prev.textContent || '';
+        return raw.replace(/\\u00A0/g, ' ').trim();
+      }
+
+      function flashCopied(button) {
+        var original = button.textContent;
+        button.textContent = 'Copied';
+        button.classList.add('draft-copied');
+        setTimeout(function () {
+          button.textContent = original;
+          button.classList.remove('draft-copied');
+        }, 1500);
+      }
+
+      function copyText(text, button) {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(text).then(function () {
+            flashCopied(button);
+          }).catch(function () {
+            fallbackCopy(text, button);
+          });
+        } else {
+          fallbackCopy(text, button);
+        }
+      }
+
+      function fallbackCopy(text, button) {
+        var ta = document.createElement('textarea');
+        ta.value = text;
+        ta.setAttribute('readonly', '');
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        try {
+          document.execCommand('copy');
+          flashCopied(button);
+        } catch (_) {}
+        document.body.removeChild(ta);
+      }
+
+      document.addEventListener('click', function (e) {
+        var t = e.target;
+        if (!t || !t.closest) return;
+
+        var copyBtn = t.closest('.draft-copy');
+        if (copyBtn) {
+          e.preventDefault();
+          var actions = copyBtn.closest('.draft-actions');
+          if (actions) {
+            var text = getDraftText(actions);
+            if (text) copyText(text, copyBtn);
+          }
+          return;
+        }
+
+        var emailLink = t.closest('.draft-email');
+        if (emailLink) {
+          e.preventDefault();
+          var actions2 = emailLink.closest('.draft-actions');
+          var body = actions2 ? getDraftText(actions2) : '';
+          var email = emailLink.dataset.email || '';
+          var subject = emailLink.dataset.subject || '';
+          var url = 'mailto:' + email;
+          var qs = [];
+          if (subject) qs.push('subject=' + encodeURIComponent(subject));
+          if (body) qs.push('body=' + encodeURIComponent(body));
+          if (qs.length) url += '?' + qs.join('&');
+          window.location.href = url;
+        }
+      });
     })();
   `;
 }
