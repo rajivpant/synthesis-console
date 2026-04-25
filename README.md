@@ -16,9 +16,13 @@ Synthesis engineering is a discipline for structured human-AI collaboration — 
 
 ## Screenshots
 
-**Project list** — grouped by status with color-coded badges, search, and filter toggles:
+**Project list** — grouped by initiative with status badges, search, and filter toggles:
 
-![Project list with status badges and filters](screenshots/dashboard.png)
+![Project list grouped by initiative with status badges and filters](screenshots/dashboard.png)
+
+**Initiatives** — portfolio-level view across active sources (v0.3+):
+
+![Initiative cards showing portfolio status across sources](screenshots/initiatives.png)
 
 **Status filtering** — click status toggles to show specific groups:
 
@@ -36,11 +40,9 @@ Synthesis engineering is a discipline for structured human-AI collaboration — 
 
 ![Daily plans calendar](screenshots/plans-calendar.png)
 
-**Plan detail** — rendered daily plan with draft message notice and grounding:
+**Plan detail** — rendered daily plan with Slack mention pills, channel pills, and a per-draft action bar (Copy + Open-in-Slack here on the demo source; Edit + Send-to-Slack appear on editable, token-configured sources):
 
-![Plan detail with draft notice](screenshots/plan-detail.png)
-
-> Note: this screenshot is from v0.4. Since v0.6, drafts also render Slack mention pills (`<@U...>` → `@Display Name`), channel pills (`<#C...|name>` → `#name`), and an action bar with Copy / Edit / Open-in-Slack / Send-to-Slack / Compose-email buttons. Run `bun run demo` and visit `/plans/demo/2026-04-12` to see the current rendering.
+![Plan detail with mention pills and action bar](screenshots/plan-detail.png)
 
 ## What v0.6+ adds for Slack-aware drafts
 
