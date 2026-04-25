@@ -134,6 +134,17 @@ function getBuiltInDemoSource(): Source {
     plans_dir: "daily-plans",
     demo: true,
     default_active: false,
+    slack: {
+      // Demo workspace metadata (fictional). No `user_token_env` — demo
+      // doesn't authenticate, so the Send-to-Slack button never appears
+      // and no API call is ever attempted from demo data. The directory
+      // files are bundled with the repo so mention pills + reliable Open
+      // -in-Slack URLs render correctly in `bun run demo`.
+      workspace_url: "demo.slack.com",
+      team_id: "T0DEMO0000",
+      users_file: "source/contexts/slack-users.yaml",
+      channels_file: "source/contexts/slack-channels.yaml",
+    },
   };
 }
 
