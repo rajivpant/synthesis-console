@@ -49,6 +49,9 @@ fi
 mkdir -p "${LOG_DIR}"
 mkdir -p "$(dirname "${PLIST_PATH}")"
 
+LAUNCH_WRAPPER="${REPO_ROOT}/scripts/launch.sh"
+chmod +x "${LAUNCH_WRAPPER}" 2>/dev/null || true
+
 cat > "${PLIST_PATH}" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -58,9 +61,7 @@ cat > "${PLIST_PATH}" <<PLIST
     <string>${LABEL}</string>
     <key>ProgramArguments</key>
     <array>
-        <string>${BUN_BIN}</string>
-        <string>run</string>
-        <string>src/index.ts</string>
+        <string>${LAUNCH_WRAPPER}</string>
     </array>
     <key>WorkingDirectory</key>
     <string>${REPO_ROOT}</string>
@@ -83,6 +84,8 @@ cat > "${PLIST_PATH}" <<PLIST
     <dict>
         <key>PATH</key>
         <string>$(dirname "${BUN_BIN}"):/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+        <key>BUN_BIN</key>
+        <string>${BUN_BIN}</string>
     </dict>
     <key>ProcessType</key>
     <string>Background</string>

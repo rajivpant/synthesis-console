@@ -185,11 +185,29 @@ export function getSlackToken(src: Source): string | undefined {
 }
 
 export function getSlackUsersPath(src: Source): string | null {
-  return src.slack?.users_file ? join(src.root, src.slack.users_file) : null;
+  return resolveSlackFilePath(src, src.slack?.users_file);
 }
 
 export function getSlackChannelsPath(src: Source): string | null {
-  return src.slack?.channels_file ? join(src.root, src.slack.channels_file) : null;
+  return resolveSlackFilePath(src, src.slack?.channels_file);
+}
+
+/**
+ * Resolve a Slack directory file path with three accepted forms:
+ *   - "/abs/path/file.yaml"     — absolute, used as-is
+ *   - "~/relative/file.yaml"    — homedir-relative, expanded
+ *   - "relative/file.yaml"      — source-root-relative (legacy default)
+ *
+ * Absolute and ~/ forms allow placing the directory files outside the
+ * source's root — useful for machine-local storage (~/.synthesis/...) or
+ * for relocating workspace-specific data into a sibling workspace-private
+ * repo without making the source's root span both.
+ */
+function resolveSlackFilePath(src: Source, p: string | undefined): string | null {
+  if (!p) return null;
+  if (p.startsWith("/")) return p;
+  if (p.startsWith("~/")) return join(homedir(), p.slice(2));
+  return join(src.root, p);
 }
 
 export function loadConfig(options?: { demo?: boolean }): ConsoleConfig {

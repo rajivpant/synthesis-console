@@ -18,20 +18,31 @@
  *   bun run scripts/setup-slack.ts <source-name> --no-zshrc --no-plist
  *     (skip persistence; only update console.yaml + run sync)
  */
-import { readFileSync, writeFileSync, existsSync, appendFileSync } from "fs";
-import { homedir } from "os";
-import { join } from "path";
+import { readFileSync, writeFileSync, existsSync, appendFileSync, mkdirSync } from "fs";
+import { homedir, userInfo } from "os";
+import { dirname, join } from "path";
 import { spawnSync } from "child_process";
 import { loadConfig, findSource, getSlackToken } from "../src/config.js";
 
 const ZSHRC = join(homedir(), ".zshrc");
 const CONSOLE_YAML = join(homedir(), ".synthesis", "console.yaml");
+const KEYCHAIN_MANIFEST = join(homedir(), ".synthesis", "keychain-tokens.txt");
 const LAUNCH_AGENT_PLIST = join(
   homedir(),
   "Library",
   "LaunchAgents",
   "org.synthesisengineering.console.plist"
 );
+
+/**
+ * Keychain service name for a given source. Convention:
+ *   synthesis-console-slack-<source-name>
+ * The wrapper script (scripts/launch.sh) reads this naming pattern from
+ * the manifest at KEYCHAIN_MANIFEST.
+ */
+function keychainService(sourceName: string): string {
+  return `synthesis-console-slack-${sourceName}`;
+}
 
 interface AuthTestResponse {
   ok: boolean;
@@ -169,48 +180,155 @@ function upsertKey(
   lines.splice(blockStart, 0, target);
 }
 
-function ensureZshrcExport(envName: string, token: string): "added" | "already-present" {
-  const exportLine = `export ${envName}='${token}'`;
+/**
+ * Store the token in the macOS Keychain under a stable service name. Uses -U
+ * to update an existing item rather than fail. The token never lands on disk
+ * outside the Keychain's encrypted store — Spotlight, Time Machine, and
+ * accidentally-shared screenshots can't expose it.
+ */
+function storeTokenInKeychain(sourceName: string, token: string): "added" | "updated" {
+  const service = keychainService(sourceName);
+  const account = userInfo().username;
+
+  // Check if the item already exists.
+  const existed =
+    spawnSync("security", ["find-generic-password", "-a", account, "-s", service], {
+      encoding: "utf-8",
+    }).status === 0;
+
+  const res = spawnSync(
+    "security",
+    [
+      "add-generic-password",
+      "-a", account,
+      "-s", service,
+      "-w", token,
+      "-U", // update if exists
+      "-T", "/usr/bin/security", // allow security CLI to read without prompting
+      "-T", "", // also allow Apple-signed system processes (launchd) to read
+      "-j", "Slack user OAuth token for synthesis-console (auto-managed by setup-slack)",
+    ],
+    { encoding: "utf-8" }
+  );
+  if (res.status !== 0) {
+    throw new Error(`security add-generic-password failed: ${res.stderr}`);
+  }
+  return existed ? "updated" : "added";
+}
+
+/**
+ * Maintain ~/.synthesis/keychain-tokens.txt — the manifest the LaunchAgent's
+ * wrapper script reads. Format: <service-name>:<env-var-name> per line.
+ * Idempotent: replaces a stale entry for the same service or appends a new one.
+ */
+function ensureKeychainManifestEntry(sourceName: string, envName: string): "added" | "updated" | "already-present" {
+  const dir = dirname(KEYCHAIN_MANIFEST);
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+
+  const service = keychainService(sourceName);
+  const newLine = `${service}:${envName}`;
+
+  let existing = "";
+  if (existsSync(KEYCHAIN_MANIFEST)) existing = readFileSync(KEYCHAIN_MANIFEST, "utf-8");
+
+  const lines = existing.split("\n");
+  let found = false;
+  let changed = false;
+  for (let i = 0; i < lines.length; i++) {
+    const trimmed = lines[i].trim();
+    if (trimmed.startsWith("#") || trimmed.length === 0) continue;
+    if (trimmed.startsWith(`${service}:`)) {
+      if (trimmed !== newLine) {
+        lines[i] = newLine;
+        changed = true;
+      }
+      found = true;
+      break;
+    }
+  }
+  if (!found) {
+    if (lines.length > 0 && lines[lines.length - 1] === "") lines.pop();
+    if (lines.length === 0) {
+      lines.push(
+        "# synthesis-console keychain-tokens manifest",
+        "# Format: <keychain-service-name>:<env-var-name>",
+        "# Read by scripts/launch.sh on autostart launch."
+      );
+    }
+    lines.push(newLine);
+    changed = true;
+  }
+  if (!changed && existing.length > 0) return "already-present";
+  writeFileSync(KEYCHAIN_MANIFEST, lines.join("\n") + "\n", "utf-8");
+  return found ? "updated" : "added";
+}
+
+/**
+ * Ensure ~/.zshrc has an export line that fetches the token from the Keychain
+ * via the security CLI at shell init. The literal token is NEVER written to
+ * zshrc — only the security command that reads it. So zshrc remains safe to
+ * back up, index, and share (the secret stays encrypted in the Keychain).
+ */
+function ensureZshrcExport(sourceName: string, envName: string): "added" | "updated" | "already-present" {
+  const service = keychainService(sourceName);
+  const exportLine =
+    `export ${envName}="$(security find-generic-password -a "$USER" -s "${service}" -w 2>/dev/null)"`;
   let existing = "";
   if (existsSync(ZSHRC)) existing = readFileSync(ZSHRC, "utf-8");
 
-  // If a different export of the same var exists, replace it. Otherwise append.
   const exportRe = new RegExp(`^export\\s+${envName}=.*$`, "m");
   if (exportRe.test(existing)) {
     if (existing.match(exportRe)![0] === exportLine) return "already-present";
     const updated = existing.replace(exportRe, exportLine);
     writeFileSync(ZSHRC, updated, "utf-8");
-    return "added";
+    return "updated";
   }
   const block =
     (existing.endsWith("\n") || existing.length === 0 ? "" : "\n") +
-    `\n# Slack user token for synthesis-console (auto-managed)\n${exportLine}\n`;
+    `\n# Slack user token for synthesis-console (auto-managed by setup-slack; reads from Keychain)\n${exportLine}\n`;
   appendFileSync(ZSHRC, block, "utf-8");
   return "added";
 }
 
-function ensurePlistEnvVar(envName: string, token: string): "added" | "updated" | "no-plist" {
+/**
+ * Ensure the LaunchAgent plist invokes scripts/launch.sh (the Keychain-aware
+ * wrapper) instead of bun directly, and that any stale token from earlier
+ * versions has been removed from EnvironmentVariables.
+ */
+function ensurePlistWrapper(consoleRepoPath: string, envNamesToClear: string[]): "no-plist" | "ok" {
   if (!existsSync(LAUNCH_AGENT_PLIST)) return "no-plist";
 
-  // Use PlistBuddy via child_process to set the key.
-  // First check if it exists:
-  const printRes = spawnSync(
+  const wrapperPath = join(consoleRepoPath, "scripts", "launch.sh");
+
+  // Replace ProgramArguments to point at the wrapper script.
+  // Use Delete + Add for idempotence.
+  spawnSync(
     "/usr/libexec/PlistBuddy",
-    ["-c", `Print :EnvironmentVariables:${envName}`, LAUNCH_AGENT_PLIST],
+    ["-c", "Delete :ProgramArguments", LAUNCH_AGENT_PLIST],
     { encoding: "utf-8" }
   );
-  const exists = printRes.status === 0;
-
-  const cmd = exists
-    ? `Set :EnvironmentVariables:${envName} ${token}`
-    : `Add :EnvironmentVariables:${envName} string ${token}`;
-  const res = spawnSync("/usr/libexec/PlistBuddy", ["-c", cmd, LAUNCH_AGENT_PLIST], {
-    encoding: "utf-8",
-  });
-  if (res.status !== 0) {
-    throw new Error(`PlistBuddy failed: ${res.stderr}`);
+  const addArgs = spawnSync(
+    "/usr/libexec/PlistBuddy",
+    [
+      "-c", "Add :ProgramArguments array",
+      "-c", `Add :ProgramArguments:0 string ${wrapperPath}`,
+      LAUNCH_AGENT_PLIST,
+    ],
+    { encoding: "utf-8" }
+  );
+  if (addArgs.status !== 0) {
+    throw new Error(`PlistBuddy failed (ProgramArguments): ${addArgs.stderr}`);
   }
-  return exists ? "updated" : "added";
+
+  // Strip any pre-Keychain SLACK_USER_TOKEN_* entries from EnvironmentVariables.
+  for (const name of envNamesToClear) {
+    spawnSync(
+      "/usr/libexec/PlistBuddy",
+      ["-c", `Delete :EnvironmentVariables:${name}`, LAUNCH_AGENT_PLIST],
+      { encoding: "utf-8" }
+    );
+  }
+  return "ok";
 }
 
 function reloadLaunchAgent(): "ok" | "not-loaded" | "error" {
@@ -302,10 +420,21 @@ async function main(): Promise<void> {
   });
   console.log(`  Wrote workspace_url and team_id under sources[${sourceName}].slack.`);
 
+  console.log(`Storing token in macOS Keychain...`);
+  try {
+    const r = storeTokenInKeychain(sourceName, token);
+    console.log(`  ${keychainService(sourceName)}: ${r}.`);
+    const m = ensureKeychainManifestEntry(sourceName, envName);
+    console.log(`  Manifest ${KEYCHAIN_MANIFEST}: ${m}.`);
+  } catch (err) {
+    console.error(`  ${(err as Error).message}`);
+    process.exit(1);
+  }
+
   if (!skipZshrc) {
     console.log(`Updating ${ZSHRC}...`);
-    const r = ensureZshrcExport(envName, token);
-    console.log(`  ${envName}: ${r}.`);
+    const r = ensureZshrcExport(sourceName, envName);
+    console.log(`  ${envName} export (Keychain-fetched): ${r}.`);
   } else {
     console.log(`Skipping ~/.zshrc update (--no-zshrc).`);
   }
@@ -313,11 +442,14 @@ async function main(): Promise<void> {
   if (!skipPlist) {
     console.log(`Updating LaunchAgent plist...`);
     try {
-      const r = ensurePlistEnvVar(envName, token);
+      // Determine consoleRepoPath — the directory containing scripts/launch.sh.
+      // setup-slack.ts lives at <repo>/scripts/setup-slack.ts.
+      const consoleRepoPath = join(new URL("..", import.meta.url).pathname);
+      const r = ensurePlistWrapper(consoleRepoPath, [envName]);
       if (r === "no-plist") {
         console.log(`  No autostart plist found at ${LAUNCH_AGENT_PLIST}; skipping.`);
       } else {
-        console.log(`  ${envName} ${r} in plist EnvironmentVariables.`);
+        console.log(`  Plist ProgramArguments now invokes ${join(consoleRepoPath, "scripts", "launch.sh")}; stale ${envName} entry removed if present.`);
         console.log(`Reloading LaunchAgent...`);
         const reload = reloadLaunchAgent();
         console.log(`  ${reload}`);

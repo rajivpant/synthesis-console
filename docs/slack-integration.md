@@ -41,6 +41,63 @@ Pass any of `--no-zshrc`, `--no-plist`, `--no-sync` to skip individual steps. By
 
 After it finishes, visit http://localhost:5555/plans — drafts should render mention pills, the Send-to-Slack button should appear, and Open-in-Slack links should land on the right channel.
 
+## Multi-workspace setup
+
+Each source can have its own `slack:` block, with its own user token, its own users/channels files, and its own workspace_url + team_id. This is the natural model for someone who works across multiple Slack workspaces (e.g. one personal + multiple clients) — each workspace gets its own Slack app, its own token, and its own directory data.
+
+Example multi-workspace configuration:
+
+```yaml
+sources:
+  - name: personal
+    root: ~/workspaces/rajiv/ai-knowledge-rajiv
+    plans_dir: daily-plans
+    slack:
+      workspace_url: workspace-a.slack.com
+      team_id: T01ABCDEFGH
+      user_token_env: SLACK_USER_TOKEN_RAJIV_WS_A
+      users_file: source/contexts/slack-users.yaml
+      channels_file: source/contexts/slack-channels.yaml
+
+  - name: client-b
+    root: ~/workspaces/client-b/ai-knowledge-client-b-rajiv-private
+    projects_dir: projects
+    slack:
+      workspace_url: workspace-b.slack.com
+      team_id: T02ZYXWVUTS
+      user_token_env: SLACK_USER_TOKEN_RAJIV_WS_B
+      users_file: source/contexts/slack-users.yaml
+      channels_file: source/contexts/slack-channels.yaml
+```
+
+The two sources resolve mentions, channel IDs, and Send-to-Slack independently — they don't share a directory or a token. A draft on the `personal` source's daily plan that targets `#some-channel` is matched against the `personal` source's channel directory; a draft anywhere on `client-b` content uses `client-b`'s directory and posts via `client-b`'s token.
+
+### Setup procedure for each additional workspace
+
+For each workspace you want to integrate:
+
+1. Create a separate Slack app for that workspace at `https://api.slack.com/apps` (each workspace's app is independent — install scopes are per-app, per-workspace).
+2. Add the user-token scopes listed in the Token setup section.
+3. Install to the workspace and copy the `xoxp-` token.
+4. Add the source's `slack:` block to `~/.synthesis/console.yaml` with a unique `user_token_env` name (e.g. `SLACK_USER_TOKEN_RAJIV_WS_B`).
+5. Run setup-slack with the appropriate token for that source:
+
+```bash
+SLACK_USER_TOKEN_RAJIV_WS_B='xoxp-...' bun run setup-slack client-b
+```
+
+The script writes the new env var to `~/.zshrc`, the LaunchAgent plist, the source's `slack:` block in console.yaml, and runs sync-slack to populate that source's users/channels files.
+
+### Verification checklist for multi-workspace setups
+
+- [ ] Each source's `user_token_env` points at a distinct env var name (collision means one workspace's token would overwrite another's at runtime).
+- [ ] Each source's `users_file` and `channels_file` point at distinct paths (otherwise the second sync overwrites the first's data).
+- [ ] Visit a daily plan on each source. Open-in-Slack URLs should use the correct per-source `workspace_url`. Mention pills should resolve to the right per-workspace display names.
+- [ ] On `~/Library/LaunchAgents/...plist`, both env vars should appear under `EnvironmentVariables`. After reload, the running console picks up both.
+- [ ] If both sources contribute to the merged plans view, each plan still resolves against its own source's directory (the renderer uses the source the plan came from, not a global directory).
+
+---
+
 ## Sync only (no setup)
 
 If `workspace_url` and `team_id` are already set and the token is already in env, just refresh the user/channel lists:
@@ -101,18 +158,49 @@ You need a **user** OAuth token (`xoxp-...`), not a bot token (`xoxb-...`). Bot 
 
 ### Store the token
 
-The token is the most sensitive thing in this setup. Do NOT put it in the YAML config — it would be world-readable and you'd risk committing it. Instead, store it in an environment variable named whatever you put in `slack.user_token_env`:
+The token is the most sensitive thing in this setup. The recommended path is to run `setup-slack` (described in Quick start above), which writes the token to the macOS Keychain and configures everything that needs to read it from there. The token never lands on disk in cleartext.
 
-```bash
-# In ~/.zshrc or ~/.bashrc:
-export SLACK_USER_TOKEN_RAJIV='xoxp-...'
-```
+What `setup-slack` does for token storage:
 
-Restart the synthesis-console process after setting the env var. The console reads the env var at request time, so updates take effect on the next request.
+1. **macOS Keychain** — token is stored under service name `synthesis-console-slack-<source>` (e.g. `synthesis-console-slack-personal`) with your username as the account. Encrypted at rest by the OS; not indexed by Spotlight; not included in Time Machine backups.
+2. **`~/.synthesis/keychain-tokens.txt`** — a manifest mapping the Keychain service to the env-var name the console expects (`<service>:<env-var-name>`). The autostart wrapper reads this to know which tokens to fetch.
+3. **`~/.zshrc`** — adds an `export` line that fetches the token from the Keychain at shell init via `security find-generic-password`. The literal token is NOT written to zshrc, only the command that reads it. So zshrc stays safe to back up, index, and share.
+4. **LaunchAgent plist** — `setup-slack` updates the plist to invoke `scripts/launch.sh` (a wrapper that reads tokens from the Keychain at launch and exec's bun) instead of bun directly. No tokens land in the plist's `EnvironmentVariables`.
+
+Manual setup (only needed if you can't or don't want to use `setup-slack`): pre-load the env var in your shell before running the console (`SLACK_USER_TOKEN_RAJIV='xoxp-...' bun run dev`). The console reads the env var at request time.
 
 ### Verify
 
 Visit any plan with a draft. If the token is configured correctly, the draft action bar shows a **Send to Slack** button next to Copy / Edit / Open in Slack.
+
+### Rotate the token
+
+Slack user OAuth tokens don't expire automatically, but you might rotate one because:
+- The token leaked (force-rotate immediately on `https://api.slack.com/apps/<your-app-id>/oauth` → "Reinstall to Workspace").
+- You uninstalled and reinstalled the Slack app.
+- You changed scopes and Slack issued a new token on reinstall.
+- Routine hygiene (annual rotation, post-departure for shared workspaces, etc.).
+
+To rotate without breaking the running console, re-run setup-slack with the new token:
+
+```bash
+SLACK_USER_TOKEN_RAJIV='xoxp-NEW...' bun run setup-slack personal
+```
+
+That single command updates all three persistence locations idempotently:
+- `~/.zshrc` — replaces the existing `export SLACK_USER_TOKEN_RAJIV=...` line in place; appends a new one if it wasn't there.
+- `~/Library/LaunchAgents/org.synthesisengineering.console.plist` — `EnvironmentVariables:SLACK_USER_TOKEN_RAJIV` is updated via PlistBuddy `Set` (not `Add`), so the autostart picks up the new token on reload.
+- The LaunchAgent reload is automatic; the running console reads the env var per-request, so the new token takes effect on the next page load with no manual restart.
+
+The directory files (`slack-users.yaml`, `slack-channels.yaml`) are also re-fetched as the final step in case the token's scope changed or you reinstalled to a different workspace. If you only want to rotate the token without re-syncing, pass `--no-sync`.
+
+If you also want to rotate the token in your current shell (not just future shells), `source ~/.zshrc` after the run.
+
+To verify the rotation took effect, hit the preflight endpoint for any draft and confirm `tokenConfigured: true`:
+
+```bash
+curl -s http://localhost:5555/plans/personal/<some-date>/draft/0/preflight | jq .tokenConfigured
+```
 
 ---
 
@@ -204,8 +292,17 @@ The marker is idempotent — the send endpoint refuses to re-send a draft that's
 
 ## Security
 
-- **Token storage:** env var only. Never in YAML, never committed. The console reads the env var per-request, not at startup, so rotating the token takes effect on the next request without restart.
+- **Token storage:** macOS Keychain only (encrypted at rest by the OS; not Spotlight-indexed; not in Time Machine). zshrc holds a `security find-generic-password` command, not the token. The LaunchAgent plist invokes `scripts/launch.sh` which reads from the Keychain at launch — no token in the plist either. The console reads the env var per-request, so rotating the token via `setup-slack` takes effect on the next page load without a manual restart.
 - **Local-only:** the synthesis-console binds to localhost. The send endpoint accepts requests only from the same machine.
 - **Confirmation required:** the send endpoint requires `{"confirmed": true}` in the request body. The browser-side modal shows a preview of the resolved message and the target before enabling the Send button.
 - **Read-only on demo sources:** sources with `demo: true` are blocked from send and edit at both the renderer (no buttons rendered) and the endpoint (HTTP 403).
 - **Token scope minimization:** request only the user-token scopes you'll actually use. `chat:write` is required; everything else is optional and supports auto-discovery features that aren't needed for the basic send path.
+
+### Directory file location
+
+`users_file` and `channels_file` accept three forms:
+- **Absolute path** (`/abs/path/file.yaml`) — used as-is. Useful for placing the directory in a sibling workspace-private repo (e.g. `/Users/me/workspaces/client/ai-knowledge-client-rajiv-private/source/contexts/slack-users.yaml`).
+- **Home-relative** (`~/path/file.yaml`) — expanded to your home directory. Useful for machine-local storage (e.g. `~/.synthesis/personal/slack-users.yaml`) so the directory data never enters version control.
+- **Source-root-relative** (`path/file.yaml`) — joined with `source.root`. Legacy default; convenient for sources whose root is the natural home for the data.
+
+Workspace-specific directory data (one workspace's user list) generally belongs either in that workspace's private repo (cross-Mac sync) or in `~/.synthesis/<source>/` (machine-local; regenerated by `sync-slack` on each Mac). Using the cross-workspace personal repo for workspace-specific data is discouraged; gitignore those files if you can't relocate immediately.
