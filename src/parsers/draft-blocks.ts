@@ -22,11 +22,32 @@ export interface DraftBlock {
   bodyEndLine: number;
   /** Line of the opening fence (fenced kind only). */
   fenceLine?: number;
+  /** Raw text after `**Send to:**` (or `**Channel:**`) in the markdown source. */
+  sendToText?: string;
+  /** Raw text after `**Subject:**` if present. */
+  subjectText?: string;
+  /**
+   * 0-based line of the section's heading (h1-h6 immediately preceding this draft).
+   * Used by the send endpoint to append a `**Sent:**` marker after the body.
+   */
+  sectionHeadingLine?: number;
+  /** 0-based line one past the end of the section (heading exclusive of next). */
+  sectionEndLine?: number;
+  /** True if a `**Sent:**` marker is already present in this section. */
+  alreadySent: boolean;
+  /** Parsed `**Sent:**` ISO timestamp, if any. */
+  sentAt?: string;
+  /** Parsed Slack permalink from a `**Sent:**` marker, if any. */
+  sentPermalink?: string;
+  /** Parsed Slack message TS from a `**Sent:**` marker, if any. */
+  sentTs?: string;
 }
 
 const md = new MarkdownIt({ html: true, linkify: true, typographer: true });
 
 const SEND_TO_INLINE_RE = /^\s*\*\*\s*(?:Send to|Channel)\s*:?\s*\*\*/i;
+const SUBJECT_INLINE_RE = /^\s*\*\*\s*Subject\s*:?\s*\*\*/i;
+const SENT_INLINE_RE = /^\s*\*\*\s*Sent(?:\s*at)?\s*:?\s*\*\*/i;
 
 export function findDraftBlocks(raw: string): DraftBlock[] {
   const tokens = md.parse(raw, {});
@@ -35,7 +56,27 @@ export function findDraftBlocks(raw: string): DraftBlock[] {
 
   let sawSendTo = false;
   let augmentedThisSection = false;
+  let currentSendToText: string | undefined;
+  let currentSubjectText: string | undefined;
+  let currentSectionHeadingLine: number | undefined;
+  let currentSectionEndLine: number | undefined;
+  let currentDraftIdx: number | undefined; // index in drafts[] for the current section, set when we push
   let blockquoteDepth = 0;
+
+  // Pre-compute heading line ranges so each section knows its end line.
+  // Walk tokens to find heading_open positions, then attribute section ends.
+  const headingLines: number[] = [];
+  for (const t of tokens) {
+    if (t.type === "heading_open" && t.map) headingLines.push(t.map[0]);
+  }
+
+  function endLineOfSectionStartingAt(headingLine: number): number {
+    const idx = headingLines.indexOf(headingLine);
+    if (idx >= 0 && idx + 1 < headingLines.length) {
+      return headingLines[idx + 1] - 1;
+    }
+    return lines.length - 1;
+  }
 
   for (let i = 0; i < tokens.length; i++) {
     const t = tokens[i];
@@ -43,6 +84,14 @@ export function findDraftBlocks(raw: string): DraftBlock[] {
     if (t.type === "heading_open") {
       sawSendTo = false;
       augmentedThisSection = false;
+      currentSendToText = undefined;
+      currentSubjectText = undefined;
+      currentSectionHeadingLine = t.map ? t.map[0] : undefined;
+      currentSectionEndLine =
+        currentSectionHeadingLine !== undefined
+          ? endLineOfSectionStartingAt(currentSectionHeadingLine)
+          : undefined;
+      currentDraftIdx = undefined;
       continue;
     }
 
@@ -53,6 +102,19 @@ export function findDraftBlocks(raw: string): DraftBlock[] {
       const inline = tokens[i + 1].content;
       if (SEND_TO_INLINE_RE.test(inline)) {
         sawSendTo = true;
+        currentSendToText = inline.replace(SEND_TO_INLINE_RE, "").trim();
+      } else if (SUBJECT_INLINE_RE.test(inline)) {
+        currentSubjectText = inline.replace(SUBJECT_INLINE_RE, "").trim();
+      } else if (SENT_INLINE_RE.test(inline) && currentDraftIdx !== undefined) {
+        // Annotate the most-recently-pushed draft in this section as already sent.
+        const sentTail = inline.replace(SENT_INLINE_RE, "").trim();
+        const draft = drafts[currentDraftIdx];
+        if (draft) {
+          draft.alreadySent = true;
+          draft.sentAt = parseSentTimestamp(sentTail);
+          draft.sentTs = parseSentTs(sentTail);
+          draft.sentPermalink = parseSentPermalink(sentTail);
+        }
       }
     }
 
@@ -61,13 +123,8 @@ export function findDraftBlocks(raw: string): DraftBlock[] {
     if (t.type === "fence" && t.map) {
       const openLine = t.map[0];
       const endExclusive = t.map[1];
-      // Body lives between the open fence and the close fence.
-      // markdown-it sets map[1] to one past the line *after* the close fence in
-      // most cases, so the close fence is at endExclusive - 1 and body lines
-      // run openLine + 1 .. endExclusive - 2 inclusive. A trailing blank line
-      // after the close fence is common in markdown-it output but we trim
-      // conservatively to the close-fence line.
       const closeFenceLine = findCloseFenceLine(lines, openLine, t.markup, endExclusive);
+      currentDraftIdx = drafts.length;
       drafts.push({
         index: drafts.length,
         bodyText: stripTrailingNewline(t.content),
@@ -75,6 +132,11 @@ export function findDraftBlocks(raw: string): DraftBlock[] {
         bodyStartLine: openLine + 1,
         bodyEndLine: closeFenceLine - 1,
         fenceLine: openLine,
+        sendToText: currentSendToText,
+        subjectText: currentSubjectText,
+        sectionHeadingLine: currentSectionHeadingLine,
+        sectionEndLine: currentSectionEndLine,
+        alreadySent: false,
       });
       augmentedThisSection = true;
       continue;
@@ -93,18 +155,40 @@ export function findDraftBlocks(raw: string): DraftBlock[] {
         const m = ln.match(/^(\s*)>\s?(.*)$/);
         bodyLines.push(m ? m[2] : ln);
       }
+      currentDraftIdx = drafts.length;
       drafts.push({
         index: drafts.length,
         bodyText: bodyLines.join("\n").replace(/\s+$/, ""),
         kind: "blockquote",
         bodyStartLine: startLine,
         bodyEndLine: endLine,
+        sendToText: currentSendToText,
+        subjectText: currentSubjectText,
+        sectionHeadingLine: currentSectionHeadingLine,
+        sectionEndLine: currentSectionEndLine,
+        alreadySent: false,
       });
       augmentedThisSection = true;
     }
   }
 
   return drafts;
+}
+
+function parseSentTimestamp(s: string): string | undefined {
+  // Accept "2026-04-25 02:00:00 EDT" or "2026-04-25T02:00:00-04:00" or "Apr 25 2026 02:00 EDT"
+  const isoMatch = s.match(/(\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2})?(?:\s*\w{2,5})?)/);
+  return isoMatch ? isoMatch[1].trim() : undefined;
+}
+
+function parseSentTs(s: string): string | undefined {
+  const m = s.match(/TS\s*[=:]\s*([\d.]+)/i);
+  return m ? m[1] : undefined;
+}
+
+function parseSentPermalink(s: string): string | undefined {
+  const m = s.match(/(https?:\/\/[^\s)]+)/);
+  return m ? m[1] : undefined;
 }
 
 /**
@@ -143,6 +227,41 @@ export function replaceDraftBody(
   const after = lines.slice(Math.max(draft.bodyEndLine + 1, draft.bodyStartLine));
   const newLines = [...before, ...newBodyLines, ...after];
 
+  return { ok: true, newRaw: newLines.join("\n") };
+}
+
+/**
+ * Append a `**Sent:** ...` marker after the draft body. Idempotent: if the
+ * draft is already marked sent, returns "already-sent" without rewriting.
+ */
+export function markDraftAsSent(
+  raw: string,
+  draftIndex: number,
+  meta: { ts: string; permalink?: string; sentAtIso: string }
+):
+  | { ok: true; newRaw: string }
+  | { ok: false; reason: "not-found" | "already-sent" } {
+  const drafts = findDraftBlocks(raw);
+  const draft = drafts[draftIndex];
+  if (!draft) return { ok: false, reason: "not-found" };
+  if (draft.alreadySent) return { ok: false, reason: "already-sent" };
+
+  const lines = raw.split("\n");
+
+  // Insertion line: immediately after the body closes (and its trailing fence
+  // for fenced drafts).
+  const insertAt =
+    draft.kind === "fenced" ? draft.bodyEndLine + 2 : draft.bodyEndLine + 1;
+
+  const permalinkPart = meta.permalink ? ` ${meta.permalink}` : "";
+  const sentLine = `**Sent:** ${meta.sentAtIso} (TS=${meta.ts})${permalinkPart}`;
+
+  // Insert with a blank line before, unless the line already at `insertAt` is
+  // blank (avoid stacking blank lines).
+  const needsLeadingBlank = (lines[insertAt - 1] ?? "").trim() !== "";
+  const block = needsLeadingBlank ? ["", sentLine] : [sentLine];
+
+  const newLines = [...lines.slice(0, insertAt), ...block, ...lines.slice(insertAt)];
   return { ok: true, newRaw: newLines.join("\n") };
 }
 

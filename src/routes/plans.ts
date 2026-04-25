@@ -2,9 +2,12 @@ import { Hono } from "hono";
 import { existsSync, readdirSync, readFileSync, writeFileSync, renameSync } from "fs";
 import { join } from "path";
 import type { ConsoleConfig, Source } from "../config.js";
-import { getPlansPath, findSource } from "../config.js";
+import { getPlansPath, findSource, getSlackToken } from "../config.js";
 import { readAndRenderPlanMarkdown } from "../parsers/markdown.js";
-import { replaceDraftBody } from "../parsers/draft-blocks.js";
+import { replaceDraftBody, findDraftBlocks, markDraftAsSent } from "../parsers/draft-blocks.js";
+import { loadSlackDirectory } from "../parsers/slack-directory.js";
+import { resolveMentions, listResolvedMentions } from "../parsers/slack-mentions.js";
+import { postSlackMessage } from "../integrations/slack-send.js";
 import { layout } from "../views/layout.js";
 import { planListView, planDetailView } from "../views/plan.js";
 import type { PlanEntry } from "../views/plan.js";
@@ -82,7 +85,16 @@ export function planRoutes(config: ConsoleConfig) {
     }
 
     const filePath = join(plansDir, `${date}.md`);
-    const contentHtml = readAndRenderPlanMarkdown(filePath, { editable: !src.demo });
+    const directory = loadSlackDirectory(src);
+    const slackEnabled = !src.demo && !!getSlackToken(src);
+    const contentHtml = readAndRenderPlanMarkdown(filePath, {
+      editable: !src.demo,
+      slackEnabled,
+      directory,
+      slack: src.slack
+        ? { workspace_url: src.slack.workspace_url, team_id: src.slack.team_id }
+        : undefined,
+    });
     if (!contentHtml) {
       return notFound(c, config, active, `No plan for ${escapeHtml(date)} in ${escapeHtml(sourceName)}.`);
     }
@@ -191,7 +203,213 @@ export function planRoutes(config: ConsoleConfig) {
     return c.json({ ok: true });
   });
 
+  // Preflight a Slack send: returns the resolved-mention text and the list of
+  // pending mentions so the confirmation modal can show "this will mention 3
+  // people in #channel" before the user clicks Send.
+  app.get("/plans/:source/:date/draft/:index/preflight", (c) => {
+    const sourceName = sanitizePathSegment(c.req.param("source"));
+    const date = sanitizePathSegment(c.req.param("date"));
+    const indexStr = sanitizePathSegment(c.req.param("index"));
+    if (!sourceName || !date || !indexStr) return c.json({ ok: false, error: "Invalid path." }, 400);
+    const idx = Number(indexStr);
+    if (!Number.isInteger(idx) || idx < 0 || idx > 999) {
+      return c.json({ ok: false, error: "Invalid draft index." }, 400);
+    }
+    const src = findSource(config.sources, sourceName);
+    if (!src) return c.json({ ok: false, error: "Source not found." }, 404);
+    if (src.demo) return c.json({ ok: false, error: "Demo data is read-only." }, 403);
+
+    const plansDir = getPlansPath(src);
+    if (!plansDir) return c.json({ ok: false, error: "No plans dir." }, 404);
+    const filePath = join(plansDir, `${date}.md`);
+    if (!existsSync(filePath)) return c.json({ ok: false, error: "Plan file not found." }, 404);
+
+    const raw = readFileSync(filePath, "utf-8");
+    const drafts = findDraftBlocks(raw);
+    const draft = drafts[idx];
+    if (!draft) return c.json({ ok: false, error: "Draft not found." }, 404);
+    if (draft.alreadySent) return c.json({ ok: false, error: "Draft already sent." }, 409);
+
+    const directory = loadSlackDirectory(src);
+    const resolvedText = resolveMentions(draft.bodyText, directory);
+    const mentions = listResolvedMentions(draft.bodyText, directory);
+
+    return c.json({
+      ok: true,
+      bodyOriginal: draft.bodyText,
+      bodyResolved: resolvedText,
+      mentions,
+      sendToText: draft.sendToText || null,
+      tokenConfigured: !!getSlackToken(src),
+    });
+  });
+
+  // Direct Slack send via Web API. Uses the user OAuth token from the env var
+  // declared in source.slack.user_token_env. On success: records a `**Sent:**`
+  // marker after the draft body so the page reload shows the sent state.
+  app.post("/plans/:source/:date/draft/:index/send", async (c) => {
+    const sourceName = sanitizePathSegment(c.req.param("source"));
+    const date = sanitizePathSegment(c.req.param("date"));
+    const indexStr = sanitizePathSegment(c.req.param("index"));
+    if (!sourceName || !date || !indexStr) return c.json({ ok: false, error: "Invalid path." }, 400);
+    const idx = Number(indexStr);
+    if (!Number.isInteger(idx) || idx < 0 || idx > 999) {
+      return c.json({ ok: false, error: "Invalid draft index." }, 400);
+    }
+
+    const src = findSource(config.sources, sourceName);
+    if (!src) return c.json({ ok: false, error: "Source not found." }, 404);
+    if (src.demo) return c.json({ ok: false, error: "Demo data is read-only." }, 403);
+
+    const token = getSlackToken(src);
+    if (!token) {
+      return c.json(
+        {
+          ok: false,
+          error:
+            "Slack send is not configured for this source. Set the env var named in source.slack.user_token_env to a user OAuth token (xoxp-...) and reload.",
+        },
+        403
+      );
+    }
+
+    const plansDir = getPlansPath(src);
+    if (!plansDir) return c.json({ ok: false, error: "No plans dir." }, 404);
+    const filePath = join(plansDir, `${date}.md`);
+    if (!existsSync(filePath)) return c.json({ ok: false, error: "Plan file not found." }, 404);
+
+    let body: { confirmed?: unknown };
+    try {
+      body = (await c.req.json()) as typeof body;
+    } catch {
+      return c.json({ ok: false, error: "Invalid JSON body." }, 400);
+    }
+    if (body.confirmed !== true) {
+      return c.json({ ok: false, error: "Send must be explicitly confirmed." }, 400);
+    }
+
+    const raw = readFileSync(filePath, "utf-8");
+    const drafts = findDraftBlocks(raw);
+    const draft = drafts[idx];
+    if (!draft) return c.json({ ok: false, error: "Draft not found." }, 404);
+    if (draft.alreadySent) return c.json({ ok: false, error: "Draft already sent." }, 409);
+
+    const directory = loadSlackDirectory(src);
+    const text = resolveMentions(draft.bodyText, directory);
+    if (text.trim().length === 0) {
+      return c.json({ ok: false, error: "Cannot send empty body." }, 400);
+    }
+
+    // Determine target from sendToText.
+    const target = parseSendToFromRaw(draft.sendToText || "", directory);
+    if (!target) {
+      return c.json(
+        {
+          ok: false,
+          error:
+            "Could not determine Slack target from this draft's Send-to line. Add a channel ID, DM channel ID, or user ID to make it sendable.",
+        },
+        400
+      );
+    }
+
+    const sendResult = await postSlackMessage(token, target, text);
+    if (!sendResult.ok) {
+      return c.json({ ok: false, error: `Slack: ${sendResult.error}` }, 502);
+    }
+
+    // Append `**Sent:**` marker to the file. On marker write failure, the
+    // message HAS gone out — surface the partial-success state.
+    const sentAtIso = new Date().toISOString();
+    const markResult = markDraftAsSent(raw, idx, {
+      ts: sendResult.ts!,
+      permalink: sendResult.permalink,
+      sentAtIso,
+    });
+
+    if (!markResult.ok) {
+      return c.json(
+        {
+          ok: true,
+          warning:
+            "Message sent successfully, but the daily plan file could not be annotated. Add a **Sent:** marker manually if desired.",
+          ts: sendResult.ts,
+          permalink: sendResult.permalink,
+        }
+      );
+    }
+
+    const tempPath = `${filePath}.tmp-${process.pid}-${Date.now()}`;
+    try {
+      writeFileSync(tempPath, markResult.newRaw, "utf-8");
+      renameSync(tempPath, filePath);
+    } catch {
+      return c.json(
+        {
+          ok: true,
+          warning:
+            "Message sent successfully, but the daily plan file could not be written. Add a **Sent:** marker manually if desired.",
+          ts: sendResult.ts,
+          permalink: sendResult.permalink,
+        }
+      );
+    }
+
+    return c.json({
+      ok: true,
+      ts: sendResult.ts,
+      channel: sendResult.channel,
+      permalink: sendResult.permalink,
+    });
+  });
+
   return app;
+}
+
+import type { SlackDirectory } from "../parsers/slack-directory.js";
+import type { SlackSendTarget } from "../integrations/slack-send.js";
+
+/**
+ * Parse a Send-to line directly from raw markdown (post-stripping the
+ * `**Send to:**` prefix) into a Slack send target. Mirrors the rendering-side
+ * parseSendTo but skips HTML decoding since the input is already plain text.
+ */
+function parseSendToFromRaw(raw: string, dir: SlackDirectory): SlackSendTarget | null {
+  if (!raw) return null;
+  const text = raw.replace(/`/g, "").replace(/\s+/g, " ").trim();
+  if (!text) return null;
+
+  const threadMatch = text.match(/TS\s*[=:]\s*([\d.]+)/i);
+  const dmMatch = text.match(/\b(D[A-Z0-9]{6,})\b/);
+  const userMatch = text.match(/\b(U[A-Z0-9]{6,})\b/);
+  const channelNameMatch = text.match(/#([a-zA-Z][\w-]+)/);
+  const channelIdMatch = text.match(/\b(C[A-Z0-9]{6,})\b/);
+
+  // Resolve channel name → ID via directory if a name is present.
+  let channelId: string | undefined =
+    channelIdMatch?.[1] ||
+    (channelNameMatch ? dir.channelByName.get(channelNameMatch[1].toLowerCase())?.id : undefined);
+
+  if (dmMatch) {
+    return {
+      channel: dmMatch[1],
+      thread_ts: threadMatch?.[1],
+    };
+  }
+  if (channelId) {
+    return {
+      channel: channelId,
+      thread_ts: threadMatch?.[1],
+    };
+  }
+  if (userMatch) {
+    // Slack opens DM with this user when a U... is supplied as channel.
+    return {
+      channel: userMatch[1],
+      thread_ts: threadMatch?.[1],
+    };
+  }
+  return null;
 }
 
 function notFound(

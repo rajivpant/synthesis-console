@@ -1,8 +1,13 @@
 import { readFileSync, existsSync } from "fs";
 import MarkdownIt from "markdown-it";
-import { escapeAttr } from "../utils.js";
+import { escapeAttr, escapeHtml } from "../utils.js";
 import { findDraftBlocks } from "./draft-blocks.js";
 import type { DraftBlock } from "./draft-blocks.js";
+import { renderMentionPills, resolveMentions, listResolvedMentions } from "./slack-mentions.js";
+import type { SlackDirectory } from "./slack-directory.js";
+import { emptyDirectory } from "./slack-directory.js";
+import { buildChannelUrl, buildUserDmUrl } from "../integrations/slack-urls.js";
+import type { SlackWorkspaceConfig } from "../integrations/slack-urls.js";
 
 // Markdown is rendered without HTML sanitization. This is deliberate:
 // synthesis-console is a local-only tool that reads the user's own files.
@@ -98,25 +103,49 @@ function preprocessPlanMarkdown(raw: string): string {
  * Render markdown for daily plans with:
  * - Pre-processing for daily-plan-specific patterns
  * - #channel-name → Slack deep link
+ * - Slack mention pills for `<@U...>` and `<#C...|name>` canonical syntax
+ * - Draft action bars with copy / edit / open-in-Slack / send-via-Slack
  *
  * `editable` controls whether the draft action bar surfaces an Edit button.
- * Demo sources pass `editable: false` so bundled sample data isn't mutated.
+ * `slackEnabled` controls whether the Send-to-Slack button is rendered.
+ * Demo sources pass `editable: false` and `slackEnabled: false`.
+ *
+ * `directory` provides the user/channel mapping consumed by mention rendering
+ * and (later) by Smart Copy on the client.
  */
 export function readAndRenderPlanMarkdown(
   filePath: string,
-  opts: { editable?: boolean } = {}
+  opts: {
+    editable?: boolean;
+    slackEnabled?: boolean;
+    directory?: SlackDirectory;
+    slack?: SlackWorkspaceConfig;
+  } = {}
 ): string | null {
   if (!existsSync(filePath)) return null;
   const raw = readFileSync(filePath, "utf-8");
   const drafts = findDraftBlocks(raw);
+  const directory = opts.directory ?? emptyDirectory();
+  const slackCfg: SlackWorkspaceConfig = opts.slack ?? {};
   const preprocessed = preprocessPlanMarkdown(raw);
   let html = md.render(preprocessed);
 
-  // Convert #channel-name references to Slack deep links
-  // Matches #word-word patterns not inside HTML tags or HTML entities
+  // Render canonical Slack mention syntax (<@U...>, <#C...|name>) as pills.
+  html = renderMentionPills(html, directory);
+
+  // Convert bare #channel-name references to Slack deep links. Look up the
+  // channel ID via the directory; build a workspace-aware URL when possible
+  // (https permalink with workspace_url, slack:// with team_id, falling back
+  // to the bare-name form).
   html = html.replace(
     /(?<![<\w/&])#([a-zA-Z][\w-]{1,79})(?![^<]*>)/g,
-    '<a href="slack://channel?team=&amp;id=&amp;name=$1" title="Open #$1 in Slack">#$1</a>'
+    (_match, name: string) => {
+      const ch = directory.channelByName.get(name.toLowerCase());
+      const id = ch?.id;
+      const url = buildChannelUrl(slackCfg, id, undefined, name);
+      const titleId = id ? ` (${id})` : "";
+      return `<a class="slack-channel-link" href="${escapeAttr(url)}" title="Open #${escapeAttr(name)}${escapeAttr(titleId)} in Slack">#${escapeHtml(name)}</a>`;
+    }
   );
 
   // Insert a notice before draft message sections reminding users to review
@@ -134,8 +163,18 @@ export function readAndRenderPlanMarkdown(
     draftNotice + "\n$1"
   );
 
-  // Augment draft message blocks with action buttons (copy / edit / open in Slack / compose email)
-  html = augmentDraftBlocks(html, drafts, { editable: opts.editable !== false });
+  // Augment draft message blocks with action buttons (copy / edit / open in Slack / send / compose email)
+  html = augmentDraftBlocks(html, drafts, {
+    editable: opts.editable !== false,
+    slackEnabled: opts.slackEnabled === true,
+    directory,
+    slack: slackCfg,
+  });
+
+  // Append a JSON island with the directory so client-side Smart Copy can do
+  // mention substitution before writing to the clipboard.
+  const island = renderDirectoryIsland(directory);
+  if (island) html = html + "\n" + island;
 
   return html;
 }
@@ -202,6 +241,9 @@ function parseSendTo(htmlFragment: string): SendToTarget | null {
 interface DraftActionOpts {
   draft?: DraftBlock;
   editable: boolean;
+  slackEnabled: boolean;
+  directory: SlackDirectory;
+  slack: SlackWorkspaceConfig;
 }
 
 function renderDraftActions(
@@ -209,6 +251,11 @@ function renderDraftActions(
   subject: string | undefined,
   opts: DraftActionOpts
 ): string {
+  // Sent state: show a Sent badge + Open-thread link, suppress Copy/Edit/Send.
+  if (opts.draft && opts.draft.alreadySent) {
+    return renderSentBadge(opts.draft, target, opts.slack);
+  }
+
   const parts: string[] = [];
   parts.push(
     `<button type="button" class="draft-action draft-read draft-copy" data-action="copy" aria-label="Copy draft to clipboard">Copy</button>`
@@ -220,25 +267,38 @@ function renderDraftActions(
     );
   }
 
+  // Send-to-Slack button — only when:
+  //   (a) slack send is enabled (token configured),
+  //   (b) the source is editable (rules out demo),
+  //   (c) the parsed target is sendable via Web API
+  //       (channel ref, DM channel ID, user ID, or thread on any of those).
+  const sendable = opts.slackEnabled && opts.editable && isSendable(target, opts.directory);
+  if (opts.draft && sendable) {
+    parts.push(
+      `<button type="button" class="draft-action draft-read draft-send" data-action="send" aria-label="Send to Slack">Send to Slack</button>`
+    );
+  }
+
   if (target) {
     if (target.kind === "slack-channel" && target.channelName) {
-      const url = `slack://channel?team=&id=&name=${encodeURIComponent(target.channelName)}`;
+      // target.channelId is populated upstream when the directory has a match.
+      const url = buildChannelUrl(opts.slack, target.channelId, undefined, target.channelName);
       parts.push(
         `<a class="draft-action draft-read draft-slack" href="${escapeAttr(url)}">Open #${escapeAttr(target.channelName)} in Slack</a>`
       );
     } else if (target.kind === "slack-dm" && target.channelId) {
-      const url = `slack://channel?id=${encodeURIComponent(target.channelId)}`;
+      const url = buildChannelUrl(opts.slack, target.channelId);
       parts.push(
         `<a class="draft-action draft-read draft-slack" href="${escapeAttr(url)}">Open DM in Slack</a>`
       );
     } else if (target.kind === "slack-user" && target.userId) {
-      const url = `slack://user?id=${encodeURIComponent(target.userId)}`;
+      const url = buildUserDmUrl(opts.slack, target.userId);
       parts.push(
         `<a class="draft-action draft-read draft-slack" href="${escapeAttr(url)}">Open DM in Slack</a>`
       );
     } else if (target.kind === "slack-thread" && (target.channelId || target.userId)) {
       const idForUrl = target.channelId || target.userId!;
-      const url = `slack://channel?id=${encodeURIComponent(idForUrl)}&message=${encodeURIComponent(target.threadTs || "")}`;
+      const url = buildChannelUrl(opts.slack, idForUrl, target.threadTs);
       parts.push(
         `<a class="draft-action draft-read draft-slack" href="${escapeAttr(url)}">Open thread in Slack</a>`
       );
@@ -263,17 +323,71 @@ function renderDraftActions(
     );
   }
 
+  // Send-mode status slot (revealed during send). Re-uses the .draft-status
+  // styling but lives outside the edit-only group so it persists across mode
+  // transitions.
+  if (opts.draft && sendable) {
+    parts.push(
+      `<span class="draft-send-status" role="status" aria-live="polite"></span>`
+    );
+  }
+
   const datasetParts: string[] = [];
   if (opts.draft) {
     datasetParts.push(`data-draft-index="${opts.draft.index}"`);
     datasetParts.push(`data-draft-kind="${opts.draft.kind}"`);
     if (opts.editable) datasetParts.push(`data-editable="true"`);
+    if (sendable) datasetParts.push(`data-sendable="true"`);
+    if (target) {
+      datasetParts.push(`data-target-kind="${target.kind}"`);
+      if (target.channelName) datasetParts.push(`data-target-channel-name="${escapeAttr(target.channelName)}"`);
+      if (target.channelId) datasetParts.push(`data-target-channel-id="${escapeAttr(target.channelId)}"`);
+      if (target.userId) datasetParts.push(`data-target-user-id="${escapeAttr(target.userId)}"`);
+      if (target.threadTs) datasetParts.push(`data-target-thread-ts="${escapeAttr(target.threadTs)}"`);
+    }
     // Original body text for compare-and-swap on save.
     datasetParts.push(`data-original-text="${escapeAttr(opts.draft.bodyText)}"`);
   }
   const dataset = datasetParts.length ? " " + datasetParts.join(" ") : "";
 
   return `<div class="draft-actions" role="group" aria-label="Draft actions"${dataset}>${parts.join("")}</div>`;
+}
+
+function renderSentBadge(
+  draft: DraftBlock,
+  target: SendToTarget | null,
+  slack: SlackWorkspaceConfig
+): string {
+  const parts: string[] = [];
+  const when = draft.sentAt ? ` ${escapeHtml(draft.sentAt)}` : "";
+  parts.push(`<span class="draft-action draft-sent-badge" aria-label="Sent">Sent${when}</span>`);
+
+  if (draft.sentPermalink) {
+    parts.push(
+      `<a class="draft-action draft-sent-link" href="${escapeAttr(draft.sentPermalink)}" target="_blank" rel="noopener">View in Slack</a>`
+    );
+  } else if (target && draft.sentTs) {
+    const idForUrl = target.channelId || target.userId;
+    if (idForUrl) {
+      const url = buildChannelUrl(slack, idForUrl, draft.sentTs);
+      parts.push(
+        `<a class="draft-action draft-sent-link" href="${escapeAttr(url)}">Open in Slack</a>`
+      );
+    }
+  }
+  return `<div class="draft-actions draft-actions-sent" role="group" aria-label="Sent draft" data-sent="true">${parts.join("")}</div>`;
+}
+
+function isSendable(target: SendToTarget | null, dir: SlackDirectory): boolean {
+  if (!target) return false;
+  if (target.kind === "slack-channel" && target.channelName) {
+    // Sendable via API only if we can resolve the channel name to an ID.
+    return dir.channelByName.has(target.channelName.toLowerCase());
+  }
+  if (target.kind === "slack-dm") return !!target.channelId;
+  if (target.kind === "slack-user") return !!target.userId;
+  if (target.kind === "slack-thread") return !!(target.channelId || target.userId);
+  return false;
 }
 
 /**
@@ -293,7 +407,7 @@ function renderDraftActions(
 function augmentDraftBlocks(
   html: string,
   drafts: DraftBlock[],
-  opts: { editable: boolean }
+  opts: { editable: boolean; slackEnabled: boolean; directory: SlackDirectory; slack: SlackWorkspaceConfig }
 ): string {
   const sections = html.split(/(<h[1-6][^>]*>[\s\S]*?<\/h[1-6]>)/);
   let draftCursor = 0;
@@ -307,6 +421,10 @@ function augmentDraftBlocks(
     if (!sendToMatch || sendToMatch.index === undefined) continue;
 
     const target = parseSendTo(sendToMatch[1]);
+    if (target && target.kind === "slack-channel" && target.channelName) {
+      const ch = opts.directory.channelByName.get(target.channelName.toLowerCase());
+      if (ch) target.channelId = ch.id;
+    }
 
     const subjectMatch = section.match(/<p>\s*<strong>Subject:?<\/strong>([\s\S]*?)<\/p>/i);
     const subject = subjectMatch
@@ -327,7 +445,17 @@ function augmentDraftBlocks(
         const actionsHtml = renderDraftActions(target, subject, {
           draft,
           editable: opts.editable,
+          slackEnabled: opts.slackEnabled,
+          directory: opts.directory,
+          slack: opts.slack,
         });
+        // For sent drafts: ALSO mark the body as sent visually (CSS picks up
+        // the data-sent attribute on the parent and styles the preceding
+        // pre/blockquote).
+        if (draft?.alreadySent) {
+          // Wrap in a sent-state container so CSS can style the body.
+          return `<div class="draft-sent-body">${match}</div>${actionsHtml}`;
+        }
         return match + actionsHtml;
       }
     );
@@ -338,4 +466,26 @@ function augmentDraftBlocks(
   }
 
   return sections.join("");
+}
+
+/**
+ * Render a JSON island carrying the source's Slack directory so the client-side
+ * Smart Copy and Send handlers can resolve display names to canonical mention
+ * syntax without a server round-trip per draft.
+ *
+ * Inside a `<script type="application/json">` tag, the browser does NOT do
+ * HTML entity decoding — the content is read as-is by `.textContent`. The only
+ * sequences we must guard against are those that could close the surrounding
+ * script tag prematurely or be interpreted as HTML comment/CDATA boundaries.
+ */
+export function renderDirectoryIsland(directory: SlackDirectory): string {
+  if (directory.users.length === 0 && directory.channels.length === 0) return "";
+  const payload = {
+    users: directory.users.map((u) => ({ id: u.id, name: u.name, aliases: u.aliases || [] })),
+    channels: directory.channels.map((c) => ({ id: c.id, name: c.name })),
+  };
+  const json = JSON.stringify(payload)
+    .replace(/<\/script/gi, "<\\/script")
+    .replace(/<!--/g, "<\\!--");
+  return `<script id="slack-directory" type="application/json">${json}</script>`;
 }

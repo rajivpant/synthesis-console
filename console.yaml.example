@@ -20,7 +20,17 @@
 #     notes_dir:       relative path to notes dir — reserved for Phase 3 wiki viewer (optional)
 #     default_active:  true/false — pre-selected on first run (optional, default false)
 #     demo:            true/false — marks as demo data (optional, default false)
+#     slack:           Slack integration (v0.6+); see below and docs/slack-integration.md
 #   port: preferred port; auto-increments if busy (optional, default 5555)
+#
+# Slack block (v0.6+, all fields optional):
+#   slack:
+#     workspace_url:    e.g. "myteam.slack.com" — used to build https permalinks
+#     team_id:          e.g. "T012345" — used by slack:// fallback URLs
+#     user_token_env:   name of env var holding xoxp- user OAuth token
+#                       (token NOT stored in YAML for security)
+#     users_file:       path (relative to source.root) to slack-users.yaml
+#     channels_file:    path (relative to source.root) to slack-channels.yaml
 #
 # A source contributes to a view if and only if its corresponding *_dir field is set.
 # Omit a field and the source contributes nothing to that view. The source can still
@@ -36,6 +46,15 @@ sources:
     lessons_dir: lessons
     plans_dir: daily-plans
     default_active: true
+
+    # Slack integration (v0.6+) — opt-in. Uncomment + populate to enable mention
+    # rendering, Smart Copy, reliable channel deeplinks, and direct send.
+    # slack:
+    #   workspace_url: myteam.slack.com
+    #   team_id: T012345
+    #   user_token_env: SLACK_USER_TOKEN_PERSONAL
+    #   users_file: source/contexts/slack-users.yaml
+    #   channels_file: source/contexts/slack-channels.yaml
 
   # Example client — projects and notes only; no daily plans (plans are person-scoped
   # and live in the personal source, by convention). Duplicate and rename this block

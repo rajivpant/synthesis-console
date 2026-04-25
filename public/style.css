@@ -830,6 +830,214 @@ nav a.active {
   border-color: #2563eb;
 }
 
+/* ---- Slack mention pills (rendered from <@U...> and <#C...|name>) ---- */
+.slack-pill {
+  display: inline-block;
+  padding: 0.05em 0.45em;
+  border-radius: 999px;
+  font-weight: 500;
+  font-size: 0.92em;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+
+.slack-pill-user {
+  background: #e0e7ff;
+  color: #3730a3;
+  border: 1px solid #c7d2fe;
+}
+
+.slack-pill-channel {
+  background: #ecfdf5;
+  color: #065f46;
+  border: 1px solid #a7f3d0;
+}
+
+.slack-channel-link {
+  color: #0c7c59;
+  text-decoration: none;
+}
+
+.slack-channel-link:hover {
+  text-decoration: underline;
+}
+
+/* ---- Send-to-Slack action button ---- */
+.draft-actions .draft-action.draft-send {
+  background: #4a154b;
+  border-color: #4a154b;
+  color: #fff;
+}
+
+.draft-actions .draft-action.draft-send:hover {
+  background: #350d36;
+  border-color: #350d36;
+  color: #fff;
+}
+
+.draft-send-status {
+  align-items: center;
+  padding: 0 0.4em;
+  font-size: 0.85em;
+  color: #4b5563;
+}
+
+.draft-send-status.draft-status-error {
+  color: #b91c1c;
+}
+
+/* ---- Sent state (action bar replaced with status badge) ---- */
+.draft-actions-sent {
+  background: #f3f4f6;
+  border-color: #d1d5db;
+}
+
+.draft-sent-badge {
+  background: #10b981;
+  border: 1px solid #059669;
+  color: #fff;
+  font-weight: 500;
+}
+
+.draft-sent-link {
+  background: #fff;
+  border: 1px solid #d1d5db;
+  color: #1f2937;
+}
+
+.draft-sent-link:hover {
+  background: #f3f4f6;
+  border-color: #9ca3af;
+}
+
+.draft-sent-body pre,
+.draft-sent-body blockquote {
+  opacity: 0.75;
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+  text-decoration-color: rgba(75, 85, 99, 0.5);
+}
+
+/* ---- Send-to-Slack confirmation modal ---- */
+.send-modal-overlay {
+  position: fixed;
+  inset: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  background: rgba(17, 24, 39, 0.5);
+  z-index: 1000;
+}
+
+.send-modal-overlay.visible {
+  display: flex;
+}
+
+.send-modal {
+  background: #fff;
+  border-radius: 8px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.18);
+  padding: 1.25em 1.5em;
+  width: min(640px, 95vw);
+  max-height: 80vh;
+  overflow: auto;
+}
+
+.send-modal-title {
+  margin: 0 0 0.7em 0;
+  font-size: 1.15em;
+}
+
+.send-modal-meta {
+  margin-bottom: 0.5em;
+  font-size: 0.95em;
+  color: #1f2937;
+}
+
+.send-modal-warn {
+  color: #b45309;
+  font-weight: 500;
+}
+
+.send-modal-mentions {
+  margin-bottom: 0.7em;
+  font-size: 0.85em;
+  color: #4b5563;
+  white-space: pre-line;
+}
+
+.send-modal-preview-label {
+  font-size: 0.85em;
+  color: #6b7280;
+  margin-bottom: 0.3em;
+}
+
+.send-modal-preview {
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 4px;
+  padding: 0.7em 0.9em;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+  font-size: 0.85em;
+  line-height: 1.5;
+  color: #111827;
+  margin: 0 0 0.9em 0;
+  max-height: 280px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.send-modal-status {
+  min-height: 1.2em;
+  margin-bottom: 0.7em;
+  font-size: 0.9em;
+  color: #4b5563;
+}
+
+.send-modal-status-error {
+  color: #b91c1c;
+  font-weight: 500;
+}
+
+.send-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5em;
+}
+
+.send-modal-actions button {
+  width: auto;
+  padding: 0.4em 1em;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  background: #fff;
+  color: #1f2937;
+  cursor: pointer;
+  font-size: 0.9em;
+  font-family: inherit;
+}
+
+.send-modal-actions button:hover {
+  background: #f3f4f6;
+}
+
+.send-modal-actions button[disabled] {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.send-modal-confirm {
+  background: #4a154b !important;
+  border-color: #4a154b !important;
+  color: #fff !important;
+}
+
+.send-modal-confirm:hover {
+  background: #350d36 !important;
+  border-color: #350d36 !important;
+}
+
 /* ---- Footer ---- */
 footer {
   margin-top: 3em;

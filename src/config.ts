@@ -3,6 +3,24 @@ import { join, dirname } from "path";
 import { homedir } from "os";
 import yaml from "js-yaml";
 
+export interface SlackConfig {
+  /** Workspace subdomain, e.g. "rajivpant.slack.com". Used to build https permalinks. */
+  workspace_url?: string;
+  /** Team / workspace ID, e.g. "T123456". Used to scope slack:// deeplinks. */
+  team_id?: string;
+  /**
+   * Name of an environment variable holding a Slack user OAuth token (xoxp-...).
+   * The token itself is NEVER stored in the YAML — only the env-var name. When
+   * the env var is unset, send-via-API is disabled and the UI gracefully degrades
+   * to copy + paste-into-Slack.
+   */
+  user_token_env?: string;
+  /** Path (relative to source.root) to a YAML file mapping display name → user ID. */
+  users_file?: string;
+  /** Path (relative to source.root) to a YAML file mapping channel name → channel ID. */
+  channels_file?: string;
+}
+
 export interface Source {
   name: string;
   display_name?: string;
@@ -13,6 +31,7 @@ export interface Source {
   notes_dir?: string;
   default_active?: boolean;
   demo?: boolean;
+  slack?: SlackConfig;
 }
 
 export interface ConsoleConfig {
@@ -126,6 +145,18 @@ function normalizeSource(raw: Record<string, unknown>): Source {
     throw new Error(`Source '${raw.name}' is missing required field 'root'`);
   }
 
+  let slack: SlackConfig | undefined;
+  if (raw.slack && typeof raw.slack === "object") {
+    const s = raw.slack as Record<string, unknown>;
+    slack = {
+      workspace_url: typeof s.workspace_url === "string" ? s.workspace_url : undefined,
+      team_id: typeof s.team_id === "string" ? s.team_id : undefined,
+      user_token_env: typeof s.user_token_env === "string" ? s.user_token_env : undefined,
+      users_file: typeof s.users_file === "string" ? s.users_file : undefined,
+      channels_file: typeof s.channels_file === "string" ? s.channels_file : undefined,
+    };
+  }
+
   return {
     name: raw.name,
     display_name: typeof raw.display_name === "string" ? raw.display_name : undefined,
@@ -136,7 +167,29 @@ function normalizeSource(raw: Record<string, unknown>): Source {
     notes_dir: typeof raw.notes_dir === "string" ? raw.notes_dir : undefined,
     default_active: raw.default_active === true,
     demo: raw.demo === true,
+    slack,
   };
+}
+
+/**
+ * Resolve the Slack user token for a source by reading the env var named in
+ * source.slack.user_token_env. Returns undefined if Slack is not configured or
+ * the env var is unset. Tokens are intentionally read at request time (not
+ * cached) so rotating the env var takes effect on the next request.
+ */
+export function getSlackToken(src: Source): string | undefined {
+  const envName = src.slack?.user_token_env;
+  if (!envName) return undefined;
+  const value = process.env[envName];
+  return value && value.length > 0 ? value : undefined;
+}
+
+export function getSlackUsersPath(src: Source): string | null {
+  return src.slack?.users_file ? join(src.root, src.slack.users_file) : null;
+}
+
+export function getSlackChannelsPath(src: Source): string | null {
+  return src.slack?.channels_file ? join(src.root, src.slack.channels_file) : null;
 }
 
 export function loadConfig(options?: { demo?: boolean }): ConsoleConfig {
