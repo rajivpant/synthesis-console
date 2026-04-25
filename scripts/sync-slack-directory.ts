@@ -78,32 +78,83 @@ async function slackPaged<T>(
 ): Promise<T[]> {
   const out: T[] = [];
   let cursor: string | undefined = undefined;
+  // Page size: 100 is conservative for tier-2 endpoints. Larger pages
+  // increase the chance of 429 on freshly installed tokens whose rate-limit
+  // bucket hasn't warmed up.
+  const PAGE_LIMIT = "100";
   while (true) {
-    const params = new URLSearchParams({ limit: "200", ...query });
+    const params = new URLSearchParams({ limit: PAGE_LIMIT, ...query });
     if (cursor) params.set("cursor", cursor);
 
-    const res = await fetch(`${SLACK_API}/${method}?${params.toString()}`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    if (!res.ok) {
-      throw new Error(`Slack ${method}: HTTP ${res.status}`);
+    let attempt = 0;
+    let json:
+      | {
+          ok: boolean;
+          error?: string;
+          members?: T[];
+          channels?: T[];
+          response_metadata?: { next_cursor?: string };
+        }
+      | undefined;
+
+    while (true) {
+      const res = await fetch(`${SLACK_API}/${method}?${params.toString()}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      if (res.status === 429) {
+        // Slack rate limit. Read Retry-After (seconds) and wait.
+        const retryAfter = Number(res.headers.get("retry-after") || "5");
+        const wait = Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : 5;
+        attempt++;
+        if (attempt > 6) {
+          throw new Error(
+            `Slack ${method}: rate-limited 6 times in a row; giving up. ` +
+              `Wait a few minutes and rerun.`
+          );
+        }
+        console.log(`  Slack rate limit (429); waiting ${wait}s (attempt ${attempt}/6)...`);
+        await sleep(wait * 1000);
+        continue; // retry same request
+      }
+
+      if (!res.ok) {
+        throw new Error(`Slack ${method}: HTTP ${res.status}`);
+      }
+
+      json = (await res.json()) as typeof json;
+      if (!json) throw new Error(`Slack ${method}: empty response`);
+
+      // Slack also returns ok=false with error="ratelimited" sometimes.
+      if (!json.ok && json.error === "ratelimited") {
+        attempt++;
+        if (attempt > 6) {
+          throw new Error(`Slack ${method}: ratelimited (body) 6 times; giving up.`);
+        }
+        console.log(`  Slack rate limit (body); waiting 5s (attempt ${attempt}/6)...`);
+        await sleep(5000);
+        continue;
+      }
+
+      if (!json.ok) {
+        throw new Error(`Slack ${method}: ${json.error}`);
+      }
+      break;
     }
-    const json = (await res.json()) as {
-      ok: boolean;
-      error?: string;
-      members?: T[];
-      channels?: T[];
-      response_metadata?: { next_cursor?: string };
-    };
-    if (!json.ok) {
-      throw new Error(`Slack ${method}: ${json.error}`);
-    }
-    const page = (arrayKey === "members" ? json.members : json.channels) || [];
+
+    const page = (arrayKey === "members" ? json!.members : json!.channels) || [];
     out.push(...(page as T[]));
-    cursor = json.response_metadata?.next_cursor;
+    cursor = json!.response_metadata?.next_cursor;
     if (!cursor) break;
+
+    // Polite gap between pages on tier-2 endpoints.
+    await sleep(1100);
   }
   return out;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
 }
 
 function pickDisplayName(u: SlackApiUser): string {
