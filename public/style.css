@@ -765,6 +765,71 @@ nav a.active {
   color: #065f46;
 }
 
+.draft-actions .draft-action[disabled] {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* Read-mode (default): hide edit-only controls. */
+.draft-actions .draft-edit-only {
+  display: none;
+}
+
+/* Edit-mode (data-mode="editing"): hide read-only controls, show edit-only. */
+.draft-actions[data-mode="editing"] .draft-read {
+  display: none;
+}
+
+.draft-actions[data-mode="editing"] .draft-edit-only {
+  display: inline-flex;
+}
+
+.draft-actions[data-mode="editing"] .draft-status {
+  align-items: center;
+  padding: 0 0.4em;
+  font-size: 0.85em;
+  color: #4b5563;
+}
+
+.draft-actions[data-mode="editing"] .draft-status.draft-status-error {
+  color: #b91c1c;
+}
+
+.draft-actions[data-mode="editing"] .draft-save {
+  background: #1e40af;
+  border-color: #1e40af;
+  color: #fff;
+}
+
+.draft-actions[data-mode="editing"] .draft-save:hover {
+  background: #1e3a8a;
+  border-color: #1e3a8a;
+  color: #fff;
+}
+
+.plan-content textarea.draft-textarea {
+  width: 100%;
+  margin: 0;
+  padding: 0.7em 0.9em;
+  background: #fff;
+  border: 1px solid #d1d5db;
+  border-radius: 4px 4px 0 0;
+  border-bottom: none;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, "Cascadia Mono", monospace;
+  font-size: 0.9em;
+  line-height: 1.5;
+  color: #111827;
+  resize: vertical;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.plan-content textarea.draft-textarea:focus {
+  outline: 2px solid #2563eb;
+  outline-offset: -1px;
+  border-color: #2563eb;
+}
+
 /* ---- Footer ---- */
 footer {
   margin-top: 3em;

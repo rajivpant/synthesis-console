@@ -1,6 +1,8 @@
 import { readFileSync, existsSync } from "fs";
 import MarkdownIt from "markdown-it";
 import { escapeAttr } from "../utils.js";
+import { findDraftBlocks } from "./draft-blocks.js";
+import type { DraftBlock } from "./draft-blocks.js";
 
 // Markdown is rendered without HTML sanitization. This is deliberate:
 // synthesis-console is a local-only tool that reads the user's own files.
@@ -96,10 +98,17 @@ function preprocessPlanMarkdown(raw: string): string {
  * Render markdown for daily plans with:
  * - Pre-processing for daily-plan-specific patterns
  * - #channel-name → Slack deep link
+ *
+ * `editable` controls whether the draft action bar surfaces an Edit button.
+ * Demo sources pass `editable: false` so bundled sample data isn't mutated.
  */
-export function readAndRenderPlanMarkdown(filePath: string): string | null {
+export function readAndRenderPlanMarkdown(
+  filePath: string,
+  opts: { editable?: boolean } = {}
+): string | null {
   if (!existsSync(filePath)) return null;
   const raw = readFileSync(filePath, "utf-8");
+  const drafts = findDraftBlocks(raw);
   const preprocessed = preprocessPlanMarkdown(raw);
   let html = md.render(preprocessed);
 
@@ -125,8 +134,8 @@ export function readAndRenderPlanMarkdown(filePath: string): string | null {
     draftNotice + "\n$1"
   );
 
-  // Augment draft message blocks with action buttons (copy / open in Slack / compose email)
-  html = augmentDraftBlocks(html);
+  // Augment draft message blocks with action buttons (copy / edit / open in Slack / compose email)
+  html = augmentDraftBlocks(html, drafts, { editable: opts.editable !== false });
 
   return html;
 }
@@ -190,33 +199,48 @@ function parseSendTo(htmlFragment: string): SendToTarget | null {
   return null;
 }
 
-function renderDraftActions(target: SendToTarget | null, subject?: string): string {
+interface DraftActionOpts {
+  draft?: DraftBlock;
+  editable: boolean;
+}
+
+function renderDraftActions(
+  target: SendToTarget | null,
+  subject: string | undefined,
+  opts: DraftActionOpts
+): string {
   const parts: string[] = [];
   parts.push(
-    `<button type="button" class="draft-action draft-copy" data-action="copy" aria-label="Copy draft to clipboard">Copy</button>`
+    `<button type="button" class="draft-action draft-read draft-copy" data-action="copy" aria-label="Copy draft to clipboard">Copy</button>`
   );
+
+  if (opts.draft && opts.editable) {
+    parts.push(
+      `<button type="button" class="draft-action draft-read draft-edit" data-action="edit" aria-label="Edit draft">Edit</button>`
+    );
+  }
 
   if (target) {
     if (target.kind === "slack-channel" && target.channelName) {
       const url = `slack://channel?team=&id=&name=${encodeURIComponent(target.channelName)}`;
       parts.push(
-        `<a class="draft-action draft-slack" href="${escapeAttr(url)}">Open #${escapeAttr(target.channelName)} in Slack</a>`
+        `<a class="draft-action draft-read draft-slack" href="${escapeAttr(url)}">Open #${escapeAttr(target.channelName)} in Slack</a>`
       );
     } else if (target.kind === "slack-dm" && target.channelId) {
       const url = `slack://channel?id=${encodeURIComponent(target.channelId)}`;
       parts.push(
-        `<a class="draft-action draft-slack" href="${escapeAttr(url)}">Open DM in Slack</a>`
+        `<a class="draft-action draft-read draft-slack" href="${escapeAttr(url)}">Open DM in Slack</a>`
       );
     } else if (target.kind === "slack-user" && target.userId) {
       const url = `slack://user?id=${encodeURIComponent(target.userId)}`;
       parts.push(
-        `<a class="draft-action draft-slack" href="${escapeAttr(url)}">Open DM in Slack</a>`
+        `<a class="draft-action draft-read draft-slack" href="${escapeAttr(url)}">Open DM in Slack</a>`
       );
     } else if (target.kind === "slack-thread" && (target.channelId || target.userId)) {
       const idForUrl = target.channelId || target.userId!;
       const url = `slack://channel?id=${encodeURIComponent(idForUrl)}&message=${encodeURIComponent(target.threadTs || "")}`;
       parts.push(
-        `<a class="draft-action draft-slack" href="${escapeAttr(url)}">Open thread in Slack</a>`
+        `<a class="draft-action draft-read draft-slack" href="${escapeAttr(url)}">Open thread in Slack</a>`
       );
     } else if (target.kind === "email" && target.email) {
       // Body is filled client-side from the message element; href has subject only as a fallback.
@@ -224,12 +248,32 @@ function renderDraftActions(target: SendToTarget | null, subject?: string): stri
         `mailto:${encodeURIComponent(target.email)}` +
         (subject ? `?subject=${encodeURIComponent(subject)}` : "");
       parts.push(
-        `<a class="draft-action draft-email" href="${escapeAttr(fallbackHref)}" data-action="email" data-email="${escapeAttr(target.email)}" data-subject="${escapeAttr(subject || "")}">Compose email</a>`
+        `<a class="draft-action draft-read draft-email" href="${escapeAttr(fallbackHref)}" data-action="email" data-email="${escapeAttr(target.email)}" data-subject="${escapeAttr(subject || "")}">Compose email</a>`
       );
     }
   }
 
-  return `<div class="draft-actions" role="group" aria-label="Draft actions">${parts.join("")}</div>`;
+  // Edit-mode buttons (hidden by default; revealed when .draft-actions has the
+  // `data-mode="editing"` attribute set by JS on Edit click).
+  if (opts.draft && opts.editable) {
+    parts.push(
+      `<button type="button" class="draft-action draft-edit-only draft-save" data-action="save">Save</button>`,
+      `<button type="button" class="draft-action draft-edit-only draft-cancel" data-action="cancel">Cancel</button>`,
+      `<span class="draft-edit-only draft-status" role="status" aria-live="polite"></span>`
+    );
+  }
+
+  const datasetParts: string[] = [];
+  if (opts.draft) {
+    datasetParts.push(`data-draft-index="${opts.draft.index}"`);
+    datasetParts.push(`data-draft-kind="${opts.draft.kind}"`);
+    if (opts.editable) datasetParts.push(`data-editable="true"`);
+    // Original body text for compare-and-swap on save.
+    datasetParts.push(`data-original-text="${escapeAttr(opts.draft.bodyText)}"`);
+  }
+  const dataset = datasetParts.length ? " " + datasetParts.join(" ") : "";
+
+  return `<div class="draft-actions" role="group" aria-label="Draft actions"${dataset}>${parts.join("")}</div>`;
 }
 
 /**
@@ -239,9 +283,20 @@ function renderDraftActions(target: SendToTarget | null, subject?: string): stri
  *
  * Conservative by design: only the first message container per section is augmented,
  * and a section without a Send-to/Channel marker is left untouched.
+ *
+ * The pre-scanned `drafts` array (from findDraftBlocks on the same source) is consumed
+ * in document order so each augmented section is paired with its DraftBlock metadata
+ * for the Edit button. If a section doesn't have a corresponding draft (because the
+ * pre-scan disagreed — e.g., the strikethrough-fence preprocessor diverged from the
+ * raw source), the action bar still renders Copy + Slack/Email but no Edit button.
  */
-function augmentDraftBlocks(html: string): string {
+function augmentDraftBlocks(
+  html: string,
+  drafts: DraftBlock[],
+  opts: { editable: boolean }
+): string {
   const sections = html.split(/(<h[1-6][^>]*>[\s\S]*?<\/h[1-6]>)/);
+  let draftCursor = 0;
 
   for (let i = 0; i < sections.length; i++) {
     const section = sections[i];
@@ -262,11 +317,22 @@ function augmentDraftBlocks(html: string): string {
     const before = section.slice(0, sendToEnd);
     const after = section.slice(sendToEnd);
 
-    const actionsHtml = renderDraftActions(target, subject);
+    let augmented = false;
     const newAfter = after.replace(
       /(<pre><code[^>]*>[\s\S]*?<\/code><\/pre>|<blockquote>[\s\S]*?<\/blockquote>)/,
-      (match) => match + actionsHtml
+      (match) => {
+        if (augmented) return match;
+        augmented = true;
+        const draft = drafts[draftCursor];
+        const actionsHtml = renderDraftActions(target, subject, {
+          draft,
+          editable: opts.editable,
+        });
+        return match + actionsHtml;
+      }
     );
+
+    if (augmented) draftCursor++;
 
     sections[i] = before + newAfter;
   }
