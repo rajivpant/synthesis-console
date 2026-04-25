@@ -60,7 +60,7 @@ mkdir -p "${UNIT_DIR}"
 cat > "${UNIT_PATH}" <<UNIT
 [Unit]
 Description=Synthesis Console — local dashboard for synthesis engineering
-Documentation=https://github.com/rajivpant/synthesis-console
+Documentation=https://github.com/synthesisengineering/synthesis-console
 After=network.target
 
 [Service]

@@ -55,7 +55,7 @@ export function projectListView(opts: {
   const demoBanner = isDemoActive
     ? `<div class="demo-banner" role="status">
         You're viewing demo data with sample projects. This data illustrates the conventions that Synthesis Console renders.
-        <a href="https://github.com/rajivpant/synthesis-console">Learn more</a>
+        <a href="https://github.com/synthesisengineering/synthesis-console">Learn more</a>
       </div>`
     : "";
 

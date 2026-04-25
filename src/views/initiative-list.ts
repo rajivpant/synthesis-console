@@ -56,7 +56,7 @@ export function initiativeListView(opts: {
     return `
       <h1>Initiatives</h1>
       <p>No initiatives declared in the selected sources.</p>
-      <p><small>Add an <code>initiatives:</code> section to a source's <code>projects/index.yaml</code> to group projects into portfolio-level units. See <a href="https://github.com/rajivpant/synthesis-console/blob/main/docs/layouts.md">docs/layouts.md</a>.</small></p>
+      <p><small>Add an <code>initiatives:</code> section to a source's <code>projects/index.yaml</code> to group projects into portfolio-level units. See <a href="https://github.com/synthesisengineering/synthesis-console/blob/main/docs/layouts.md">docs/layouts.md</a>.</small></p>
       ${ungroupedTotal > 0 ? `<p><small>${ungroupedTotal} project${ungroupedTotal === 1 ? " is" : "s are"} currently ungrouped.</small></p>` : ""}
     `;
   }

@@ -62,7 +62,7 @@ Setup: `SLACK_USER_TOKEN_RAJIV='xoxp-...' bun run setup-slack <source-name>` doe
 curl -fsSL https://bun.sh/install | bash
 
 # Clone and run
-git clone https://github.com/rajivpant/synthesis-console.git
+git clone https://github.com/synthesisengineering/synthesis-console.git
 cd synthesis-console
 bun install
 
@@ -296,13 +296,13 @@ Plans include draft messages with grounding — each draft shows the research be
 
 ## The Full System
 
-Synthesis Console is the viewing layer. The methodology that produces the files it renders comes from [synthesis skills](https://github.com/rajivpant/synthesis-skills) — a library of open-source agent skills for project management, context lifecycle, daily planning, code review, and more.
+Synthesis Console is the viewing layer. The methodology that produces the files it renders comes from [synthesis skills](https://github.com/synthesisengineering/synthesis-skills) — a library of open-source agent skills for project management, context lifecycle, daily planning, code review, and more.
 
 To use the complete system:
 
 ```bash
 # Install the skills (works with Claude Code, Cursor, Codex CLI, and 40+ other agents)
-npx skills add rajivpant/synthesis-skills --global --all --copy
+npx skills add synthesisengineering/synthesis-skills --global --all --copy
 ```
 
 The skills create and maintain the files. The console renders them. Together they form a complete synthesis engineering workflow.
