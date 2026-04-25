@@ -21,23 +21,38 @@ If you want LLM-mediated send (where an agent decides what to send and to whom),
 
 ---
 
-## Quick start
+## Quick start (one command)
 
-After creating a Slack app and exporting the `xoxp-` token (see Token setup below):
+After you've created a Slack app, added the user-token scopes, installed it to your workspace, and copied the User OAuth Token (`xoxp-...`):
 
 ```bash
-# Populate the directory files from your real workspace.
-bun run sync-slack personal
+SLACK_USER_TOKEN_RAJIV='xoxp-...' bun run setup-slack personal
+```
 
-# Or just one of the two:
+Replace `SLACK_USER_TOKEN_RAJIV` with whatever you put in `source.slack.user_token_env`, and `personal` with the source name. The script:
+
+1. Calls `auth.test` to validate the token and read the workspace URL + team ID
+2. Writes `workspace_url` and `team_id` into the source's `slack:` block in `~/.synthesis/console.yaml`
+3. Adds (or replaces) the `export` line in `~/.zshrc` so the env var persists across shells
+4. Adds the env var to the autostart LaunchAgent plist via PlistBuddy and reloads it so the running console picks it up
+5. Runs `sync-slack-directory` to populate `slack-users.yaml` and `slack-channels.yaml` from the workspace
+
+Pass any of `--no-zshrc`, `--no-plist`, `--no-sync` to skip individual steps. By default everything runs.
+
+After it finishes, visit http://localhost:5555/plans — drafts should render mention pills, the Send-to-Slack button should appear, and Open-in-Slack links should land on the right channel.
+
+## Sync only (no setup)
+
+If `workspace_url` and `team_id` are already set and the token is already in env, just refresh the user/channel lists:
+
+```bash
+bun run sync-slack personal
 bun run sync-slack personal --users-only
 bun run sync-slack personal --channels-only
-
-# See what would change without writing:
 bun run sync-slack personal --dry-run
 ```
 
-The sync script writes `slack-users.yaml` and `slack-channels.yaml` with real IDs from the workspace, replacing any placeholders. Existing aliases in the users file ARE preserved across sync runs; everything else is overwritten by the API. Re-run any time the team or channel list changes.
+The sync writes `slack-users.yaml` and `slack-channels.yaml` with real IDs from the workspace. Existing aliases in the users file ARE preserved across sync runs; everything else is overwritten by the API.
 
 ---
 
