@@ -21,6 +21,26 @@ If you want LLM-mediated send (where an agent decides what to send and to whom),
 
 ---
 
+## Quick start
+
+After creating a Slack app and exporting the `xoxp-` token (see Token setup below):
+
+```bash
+# Populate the directory files from your real workspace.
+bun run sync-slack personal
+
+# Or just one of the two:
+bun run sync-slack personal --users-only
+bun run sync-slack personal --channels-only
+
+# See what would change without writing:
+bun run sync-slack personal --dry-run
+```
+
+The sync script writes `slack-users.yaml` and `slack-channels.yaml` with real IDs from the workspace, replacing any placeholders. Existing aliases in the users file ARE preserved across sync runs; everything else is overwritten by the API. Re-run any time the team or channel list changes.
+
+---
+
 ## Configuration
 
 Per-source `slack:` block in `~/.synthesis/console.yaml`:

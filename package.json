@@ -1,12 +1,13 @@
 {
   "name": "synthesis-console",
-  "version": "0.6.1",
+  "version": "0.6.2",
   "description": "Local dashboard for synthesis engineering — renders project management files as browsable, searchable pages",
   "type": "module",
   "scripts": {
     "start": "bun run src/index.ts",
     "dev": "bun --watch run src/index.ts",
     "demo": "bun run src/index.ts --demo",
+    "sync-slack": "bun run scripts/sync-slack-directory.ts",
     "autostart:install": "bash scripts/install-autostart-$(uname -s | tr '[:upper:]' '[:lower:]' | sed 's/darwin/macos/').sh",
     "autostart:uninstall": "bash scripts/uninstall-autostart-$(uname -s | tr '[:upper:]' '[:lower:]' | sed 's/darwin/macos/').sh"
   },
