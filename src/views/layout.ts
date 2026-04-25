@@ -201,8 +201,8 @@ function layoutScript(): string {
         if (!text) return text;
         var result = text;
 
-        // Channels: #name → <#C...|name> if mapped. Skip if already preceded
-        // by `<` (already canonical syntax).
+        // Channels: #name -> <#C...|name> if mapped. Skip if already preceded
+        // by a left angle bracket (already canonical syntax).
         result = result.replace(/(?<!<)#([a-zA-Z][\\w-]{1,79})\\b/g, function (m, name) {
           var ch = __slackDir.channelByName[name.toLowerCase()];
           return ch ? '<#' + ch.id + '|' + name + '>' : m;
