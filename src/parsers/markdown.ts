@@ -547,11 +547,26 @@ function augmentDraftBlocks(
 
     const sendToEnd = sendToMatch.index + sendToMatch[0].length;
 
-    // Body region ends BEFORE a Sent or Grounding paragraph inside this
+    // Body region ends BEFORE a Sent or Grounding marker inside this
     // section, or at the section end. We search the slice after Send-to.
+    //
+    // Grounding can appear in two forms (producer-consumer contract has
+    // two valid templates):
+    //   1. Legacy: <p><strong>Grounding:</strong></p> + <ul>/<ol>
+    //   2. v3.3.0+: <details><summary>Grounding (...)</summary>...</details>
+    //
+    // The v3.3.0+ template ships native HTML5 collapsibles so the markdown
+    // is glanceable as text (collapsed by GitHub etc.) and the cockpit
+    // gets the same shape as the legacy form. The body-end detection must
+    // match BOTH or the Grounding block ends up engulfed inside the body
+    // region wrapper, which puts the action bar AFTER the Grounding —
+    // exactly the wrong order, since the user needs the Copy / Edit /
+    // Send-to-Slack buttons immediately adjacent to the message text.
     const afterSlice = section.slice(sendToEnd);
     const sentRel = afterSlice.search(/<p>\s*<strong>Sent(?:\s*at)?:?<\/strong>/i);
-    const groundingRel = afterSlice.search(/<p>\s*<strong>Grounding:?<\/strong>/i);
+    const groundingRel = afterSlice.search(
+      /<p>\s*<strong>\s*Grounding\b[^<]*<\/strong>|<details(?=\s|>)[^>]*>\s*<summary[^>]*>\s*Grounding\b/i
+    );
 
     let bodyEndRel = afterSlice.length;
     if (sentRel >= 0) bodyEndRel = Math.min(bodyEndRel, sentRel);
@@ -594,11 +609,16 @@ function augmentDraftBlocks(
     // see wrapSentDraftSections below.
     const wrappedBody = `<div class="${wrapperClasses.join(" ")}"${wrapperAttrs}>${bodyHtml}</div>${actionsHtml}`;
 
-    // v0.9.1: for active drafts, wrap the inline Grounding paragraph + its
-    // following list in <details> so the verification trail collapses by
-    // default. Body and action bar stay visible. For sent drafts we leave
-    // the tail untouched here — the whole section will be wrapped below.
-    const finalTail = draft?.alreadySent ? tail : collapseGroundingInTail(tail);
+    // v0.9.3: normalize Grounding styling for BOTH active and sent drafts.
+    // For active drafts, the action bar lands above the (collapsed) Grounding
+    // — Copy / Edit / Send-to-Slack stay glanceable next to the message
+    // text. For sent drafts, the whole section gets wrapped below in
+    // wrapSentDraftSections, but inside that wrapper the Grounding still
+    // benefits from the cockpit's collapsible chevron + hover treatment.
+    // (The legacy form converts <p><strong>Grounding</strong></p>+list into
+    // <details>; the v3.3.0+ form is already <details> and just gets the
+    // class names added.)
+    const finalTail = collapseGroundingInTail(tail);
 
     sections[i] = before + wrappedBody + finalTail;
   }
@@ -607,15 +627,37 @@ function augmentDraftBlocks(
 }
 
 /**
- * Wrap the inline `<p><strong>Grounding:</strong></p>` paragraph plus the
- * following list (ul/ol) in a <details> block so the verification trail is
- * collapsed by default. Used for active drafts where the body must stay
- * visible but the Grounding metadata shouldn't crowd the glance.
+ * Normalize the Grounding block in the tail (post-body region) to use the
+ * cockpit's collapsible styling.
  *
- * Returns the tail string with the Grounding portion wrapped if found,
+ * Two source forms are accepted:
+ *   1. Legacy: `<p><strong>Grounding:</strong></p>` + `<ul>/<ol>` —
+ *      we wrap both into a single `<details><summary>...` block.
+ *   2. v3.3.0+: native `<details><summary>Grounding (N facts verified)</summary>...</details>`
+ *      already produced by the synthesis-slack-sync template — we just
+ *      decorate the existing `<details>` and `<summary>` with our class
+ *      names so the cockpit's `.cockpit-grounding-collapsible` /
+ *      `.cockpit-grounding-summary` styling applies (chevron, padding,
+ *      hover, transition).
+ *
+ * Returns the tail string with the Grounding portion normalized if found,
  * otherwise the tail unchanged.
  */
 function collapseGroundingInTail(tail: string): string {
+  // Form 2 (v3.3.0+): native <details><summary>Grounding...</summary>...</details>
+  // produced by `synthesis-slack-sync/templates/draft-block.md`. Add our
+  // class names without otherwise touching the structure.
+  const nativeRe = /<details(?![^>]*\bclass\s*=)([^>]*)>\s*<summary([^>]*)>\s*(Grounding\b[^<]*)<\/summary>/i;
+  const nativeMatch = tail.match(nativeRe);
+  if (nativeMatch) {
+    return tail.replace(
+      nativeRe,
+      `<details$1 class="cockpit-grounding-collapsible"><summary$2 class="cockpit-grounding-summary">$3</summary>`
+    );
+  }
+
+  // Form 1 (legacy): <p><strong>Grounding:</strong></p> + <ul>/<ol> —
+  // build the full <details> wrapper.
   const groundingRe = /(<p>\s*<strong>\s*Grounding\s*:?\s*<\/strong>\s*<\/p>)\s*(<(?:ul|ol)\b[\s\S]*?<\/(?:ul|ol)>)/i;
   const m = tail.match(groundingRe);
   if (!m || m.index === undefined) return tail;
