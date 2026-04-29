@@ -993,6 +993,75 @@ nav a.active {
   padding: 0.5rem 0.9rem;
 }
 
+/*
+ * v0.8.7 — <details>/<summary> styling.
+ *
+ * Two flavors of <details> live in the drafts region:
+ *   1. Producer-written (synthesis-slack-sync v3.3.0+): wraps Grounding so
+ *      verification metadata is one click away rather than crowding the
+ *      glance surface.
+ *   2. Consumer-generated: augmentDraftBlocks wraps sent-draft body regions
+ *      in <details> so done drafts collapse to title + sent badge + a
+ *      "click to expand" summary line. Late-day visual relief without
+ *      requiring any producer change.
+ *
+ * Both share the same summary styling — small, button-like, calm.
+ */
+.cockpit-drafts-body details {
+  margin: 0.5rem 0;
+}
+
+.cockpit-drafts-body details > summary {
+  cursor: pointer;
+  user-select: none;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--cockpit-context);
+  padding: 0.35rem 0.7rem;
+  background: var(--cockpit-surface);
+  border: 1px solid var(--cockpit-border);
+  border-radius: 4px;
+  display: inline-block;
+  list-style: none;
+}
+
+.cockpit-drafts-body details > summary::-webkit-details-marker {
+  display: none;
+}
+
+.cockpit-drafts-body details > summary::before {
+  content: "▸ ";
+  display: inline-block;
+  margin-right: 0.25rem;
+  transition: transform 120ms ease-out;
+}
+
+.cockpit-drafts-body details[open] > summary::before {
+  transform: rotate(90deg);
+}
+
+.cockpit-drafts-body details > summary:hover {
+  border-color: var(--cockpit-context);
+  color: var(--cockpit-critical);
+}
+
+.cockpit-drafts-body details[open] > summary {
+  margin-bottom: 0.5rem;
+}
+
+/* Sent-draft body region: when collapsed, the section is just
+ * title + Send-to + summary (one click away from the body). */
+details.draft-body-region.draft-sent-region {
+  display: block;
+  margin: 0.5rem 0;
+}
+
+details.draft-body-region.draft-sent-region > summary {
+  /* Slightly muted to match the dimmed-sent visual language */
+  font-style: italic;
+  color: var(--cockpit-muted);
+}
+
 /* ---- Send-to-Slack confirmation modal ---- */
 .send-modal-overlay {
   position: fixed;

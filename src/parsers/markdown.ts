@@ -582,7 +582,21 @@ function augmentDraftBlocks(
     const wrapperAttrs = draft
       ? ` data-draft-index="${draft.index}" data-draft-kind="${draft.kind}"`
       : "";
-    const wrappedBody = `<div class="${wrapperClasses.join(" ")}"${wrapperAttrs}>${bodyHtml}</div>${actionsHtml}`;
+
+    // v0.8.7+: sent-draft bodies render as <details> collapsed by default.
+    // Done drafts dominate visual weight late in the day — collapsing the
+    // body to a one-line summary is much calmer. Active drafts continue
+    // rendering as <div> with the body fully visible.
+    //
+    // Both forms share the same .draft-body-region class so the existing
+    // edit/copy/find DOM-walking code keeps working — element tag doesn't
+    // matter for those paths. (Edit mode never engages on sent drafts.)
+    let wrappedBody: string;
+    if (draft?.alreadySent) {
+      wrappedBody = `<details class="${wrapperClasses.join(" ")}"${wrapperAttrs}><summary class="draft-body-summary">Sent body · click to expand</summary>${bodyHtml}</details>${actionsHtml}`;
+    } else {
+      wrappedBody = `<div class="${wrapperClasses.join(" ")}"${wrapperAttrs}>${bodyHtml}</div>${actionsHtml}`;
+    }
 
     sections[i] = before + wrappedBody + tail;
   }
