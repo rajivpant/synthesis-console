@@ -1714,6 +1714,87 @@ body[data-cockpit-focus="true"] .cockpit-bucket:first-of-type {
   border-radius: 2px;
 }
 
+/* ---- Rollover view (cross-day carryover tasks) ---- */
+.cockpit-rollover-link {
+  display: inline-block;
+  margin-left: 0.75rem;
+  padding: 0.15rem 0.6rem;
+  border: 1px solid var(--cockpit-border);
+  border-radius: 999px;
+  font-size: 0.85em;
+  text-decoration: none;
+  color: var(--cockpit-context);
+  background: var(--cockpit-surface);
+}
+
+.cockpit-rollover-link:hover {
+  border-color: var(--cockpit-context);
+  color: var(--cockpit-critical);
+}
+
+.cockpit-rollover .cockpit-card {
+  display: block;
+  padding: 1rem 1.1rem;
+  margin-bottom: 0.75rem;
+}
+
+.cockpit-rollover-meta {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  margin-bottom: 0.4rem;
+}
+
+.cockpit-rollover-trail {
+  margin-top: 0.6rem;
+  padding-top: 0.5rem;
+  border-top: 1px dashed var(--cockpit-border);
+}
+
+.cockpit-rollover-trail-label {
+  font-size: 0.9em;
+  color: var(--cockpit-context);
+  margin-bottom: 0.4rem;
+}
+
+.cockpit-rollover-occurrences {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem 0.45rem;
+  font-size: 0.85em;
+}
+
+.cockpit-rollover-occurrence {
+  display: inline-block;
+  padding: 0.1rem 0.45rem;
+  border: 1px solid var(--cockpit-border);
+  border-radius: 4px;
+  text-decoration: none;
+  color: var(--cockpit-context);
+  background: var(--cockpit-surface);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.cockpit-rollover-occurrence:hover {
+  border-color: var(--cockpit-critical);
+  color: var(--cockpit-critical);
+}
+
+.cockpit-rollover-occurrence.cockpit-rollover-done {
+  color: var(--cockpit-done);
+  border-color: color-mix(in srgb, var(--cockpit-done) 35%, var(--cockpit-border));
+  text-decoration: line-through;
+}
+
+.cockpit-bucket-critical {
+  border-left: 3px solid var(--cockpit-critical);
+}
+
+.cockpit-bucket-other {
+  border-left: 3px solid var(--cockpit-context);
+}
+
 /* ---- Mobile graceful degradation (not a design target; just don't break) ---- */
 @media (max-width: 768px) {
   .cockpit-glance {
@@ -1733,5 +1814,9 @@ body[data-cockpit-focus="true"] .cockpit-bucket:first-of-type {
 
   .cockpit-decision-options {
     grid-template-columns: 1fr;
+  }
+
+  .cockpit-rollover-occurrences {
+    font-size: 0.8em;
   }
 }

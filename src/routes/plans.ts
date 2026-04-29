@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { existsSync, readdirSync, readFileSync, writeFileSync, renameSync } from "fs";
+import { existsSync, readdirSync, readFileSync, writeFileSync, renameSync, statSync } from "fs";
 import { join } from "path";
 import type { ConsoleConfig, Source } from "../config.js";
 import { getPlansPath, findSource, getSlackToken } from "../config.js";
@@ -12,6 +12,8 @@ import { postSlackMessage } from "../integrations/slack-send.js";
 import { layout } from "../views/layout.js";
 import { planListView, planDetailView } from "../views/plan.js";
 import { planCockpitView } from "../views/plan-cockpit.js";
+import { planRolloverView } from "../views/plan-rollover.js";
+import { findCarryoverTasks, countCarryoverTasks } from "../parsers/plan-rollover.js";
 import type { PlanEntry } from "../views/plan.js";
 import { escapeHtml, sanitizePathSegment } from "../utils.js";
 import { activeSources } from "../active-sources.js";
@@ -64,6 +66,50 @@ export function planRoutes(config: ConsoleConfig) {
         sources: config.sources,
         activeSourceNames: active.map((s) => s.name),
         currentPath: "/plans",
+        demoMode: config.demoMode,
+      })
+    );
+  });
+
+  // Cross-day rollover view: tasks carrying across multiple plans.
+  // `?days=N` overrides the default 7-day threshold (also accepts 14, 30 etc.).
+  app.get("/plans/:source/rollover", (c) => {
+    const active = activeSources(c, config);
+    const sourceName = sanitizePathSegment(c.req.param("source"));
+    if (!sourceName) return notFound(c, config, active, "Not found.");
+
+    const src = findSource(config.sources, sourceName);
+    if (!src) return notFound(c, config, active, `Source "${escapeHtml(sourceName)}" not found.`);
+
+    const plansDir = getPlansPath(src);
+    if (!plansDir) {
+      return notFound(c, config, active, `Source "${escapeHtml(sourceName)}" does not provide daily plans.`);
+    }
+
+    const daysParam = c.req.query("days");
+    const minDays = parseThreshold(daysParam, 7);
+    const tasks = findCarryoverTasks(plansDir, { minDays, windowDays: 60, openOnly: true });
+
+    const today = new Date();
+    const asOfDate = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+
+    const content = planRolloverView({
+      sourceName: src.name,
+      sourceDisplayName: src.display_name,
+      asOfDate,
+      minDays,
+      windowDays: 60,
+      tasks,
+      thresholdOptions: [7, 14, 30],
+    });
+
+    return c.html(
+      layout({
+        title: `Rollover — ${src.name}`,
+        content,
+        sources: config.sources,
+        activeSourceNames: active.map((s) => s.name),
+        currentPath: `/plans/${src.name}/rollover`,
         demoMode: config.demoMode,
       })
     );
@@ -145,6 +191,36 @@ export function planRoutes(config: ConsoleConfig) {
         demoMode: config.demoMode,
       })
     );
+  });
+
+  // Lightweight endpoint that returns just the file mtime in milliseconds.
+  // The cockpit polls this every 30 seconds to detect external writes
+  // (daily-rituals skill, manual edit in another editor, slack-sync writes,
+  // etc.) and soft-reloads when the file has changed since page load.
+  // Returns 404 if the source / file doesn't exist; 200 otherwise.
+  app.get("/plans/:source/:date/mtime", (c) => {
+    const sourceName = sanitizePathSegment(c.req.param("source"));
+    const date = sanitizePathSegment(c.req.param("date"));
+    if (!sourceName || !date) return c.json({ ok: false, error: "Invalid path." }, 400);
+
+    const src = findSource(config.sources, sourceName);
+    if (!src) return c.json({ ok: false, error: "Source not found." }, 404);
+
+    const plansDir = getPlansPath(src);
+    if (!plansDir) return c.json({ ok: false, error: "No plans dir." }, 404);
+    const filePath = join(plansDir, `${date}.md`);
+    if (!existsSync(filePath)) {
+      return c.json({ ok: false, error: "Plan file not found." }, 404);
+    }
+
+    let mtimeMs: number;
+    try {
+      mtimeMs = statSync(filePath).mtimeMs;
+    } catch {
+      return c.json({ ok: false, error: "Could not stat plan file." }, 500);
+    }
+
+    return c.json({ ok: true, mtimeMs });
   });
 
   // Save an edited draft body. Compare-and-swap on the original body text:
@@ -585,6 +661,18 @@ function parseIndexParam(raw: string | undefined): number | null {
   const n = Number(seg);
   if (!Number.isInteger(n) || n < 0 || n > 9999) return null;
   return n;
+}
+
+/**
+ * Parse the `?days=N` threshold for the rollover view. Clamps to [1, 365] and
+ * snaps to a small whitelist of sensible defaults to avoid arbitrary URLs
+ * generating expensive queries; unknown values fall back to the default.
+ */
+function parseThreshold(raw: string | undefined, fallback: number): number {
+  if (!raw) return fallback;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < 1 || n > 365) return fallback;
+  return Math.floor(n);
 }
 
 function writeAtomic(filePath: string, content: string): boolean {

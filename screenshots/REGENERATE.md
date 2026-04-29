@@ -23,7 +23,7 @@ Window: ~1280 wide, height as needed.
 | `project-detail.png` | http://localhost:5555/projects/demo/synthesis-console-build (or any demo project) | Project detail: metadata sidebar + rendered CONTEXT.md + REFERENCE.md |
 | `lessons.png` | http://localhost:5555/lessons | Cross-project lessons, date-sorted |
 | `plans-calendar.png` | http://localhost:5555/plans | Calendar with today highlighted; click any dated cell |
-| `plan-detail.png` | http://localhost:5555/plans/demo/2026-04-12 | **v0.6 features visible:** mention pills, channel pills, draft action bar (Copy + Open-in-Slack on demo source) |
+| `plan-detail.png` | http://localhost:5555/plans/demo/2026-04-29 | **v0.8 cockpit:** glance bar with counts and Rollover link, NEEDS YOU decision cards with options + Recommended badges, TODAY task buckets (P0 expanded with one done-with-timestamp), DRAFTS region with two unsent + one sent, lower-row collapsibles. Width 1280, full page. |
 
 ## Capture commands (macOS)
 

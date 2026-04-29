@@ -48,13 +48,16 @@ Synthesis engineering is a discipline for structured human-AI collaboration — 
 
 The plan detail view becomes a **cockpit**: a typed, sectioned rendering that surfaces what needs your attention now, with action affordances per section type.
 
-- **Glance bar** — last-modified timestamp and live counts (open decisions, tasks done / total, drafts, sent today).
+- **Glance bar** — last-modified timestamp, live counts (open decisions, tasks done / total, drafts, sent today), prev/next navigation, and a **Rollover** link to the cross-day carryover view.
 - **NEEDS YOU** region surfaces open decisions detected from `Decisions needed` H2 sections. Each card shows the question + options as buttons; clicking an option records a `**Decided:** Option X — <ISO>` marker back to the file.
 - **TODAY** region groups priority tasks by H3 bucket (e.g. "Do today — not negotiable" / "Stale targets"). Each task is a checkbox; clicking writes a strike-through + `✅ DONE HH:MM TZ` marker back to the file. Already-done tasks render in muted color with the timestamp visible.
 - **DRAFTS** region passes through to the existing v0.6 action bar (Copy / Edit / Open in Slack / Send-to-Slack) — no behavior change.
 - **Lower-row collapsibles** for briefing, standup, waiting-on, sent log, PR queue, sync state, and a "Full markdown" escape hatch that always shows the original render.
 - **Filter chips** for `All` / `Focus` (strips the page to NEEDS YOU + DRAFTS + first task bucket) and `Find` (in-page search that highlights matches across collapsed sections).
 - **Compare-and-swap discipline** for all writes — same atomic temp-file-plus-rename pattern as v0.5 / v0.6. If the file changed since the page loaded, the server returns 409 with a "reload and retry" message.
+- **Auto-refresh on file change (v0.8.4+)** — the page polls the file's mtime every 30 seconds and soft-reloads when the plan has been written by another actor (a daily-rituals run, slack-sync, or a manual edit in another editor). Reloads are skipped while you're mid-edit, the Send modal is open, or any text input has focus.
+- **Cross-day rollover view (v0.8.4+)** at `/plans/:source/rollover` — surfaces priority tasks that have appeared in multiple plans without being marked done. Click through any occurrence to that day's plan. Threshold chips (≥7 / ≥14 / ≥30 days) frame how aggressively the view filters.
+- **Section-classification audit (v0.8.4+)** — `bun run scripts/audit-section-classification.ts [plansDir]` walks a plans directory, classifies every H2 by kind, and reports the share that fall through to "other". Use it as a regression check on the producer-consumer contract: rising fallthrough means the daily-rituals skill has adopted vocabulary the cockpit doesn't recognize, and the two should be brought back into sync.
 
 The cockpit is opt-in via heuristic — plans with no recognizable section structure fall through to plain markdown rendering. See [`docs/cockpit-design.md`](docs/cockpit-design.md) for the full design and supported H2/H3 vocabulary.
 

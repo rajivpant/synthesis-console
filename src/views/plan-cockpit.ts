@@ -89,9 +89,10 @@ export function planCockpitView(opts: PlanCockpitOpts): string {
   const nextLink = opts.nextDate
     ? `<a href="/plans/${encodeURIComponent(opts.sourceName)}/${opts.nextDate}" rel="next">${escapeHtml(opts.nextDate)} &rarr;</a>`
     : `<span class="muted">&rarr;</span>`;
+  const rolloverLink = `<a class="cockpit-rollover-link" href="/plans/${encodeURIComponent(opts.sourceName)}/rollover" title="Tasks carried for ≥ 7 days across recent plans">Rollover</a>`;
 
   return `
-    <div class="cockpit-view" data-source="${escapeAttr(opts.sourceName)}" data-date="${escapeAttr(opts.date)}" data-editable="${opts.editable ? "true" : "false"}">
+    <div class="cockpit-view" data-source="${escapeAttr(opts.sourceName)}" data-date="${escapeAttr(opts.date)}" data-editable="${opts.editable ? "true" : "false"}" data-mtime-ms="${opts.fileMtimeMs}">
       <nav aria-label="breadcrumb" class="cockpit-breadcrumb">
         <ul>
           <li><a href="/plans">Daily Plans</a></li>
@@ -120,6 +121,7 @@ export function planCockpitView(opts: PlanCockpitOpts): string {
           <div class="cockpit-nav">
             ${prevLink}
             ${nextLink}
+            ${rolloverLink}
           </div>
         </div>
         <div class="cockpit-find-bar" hidden>

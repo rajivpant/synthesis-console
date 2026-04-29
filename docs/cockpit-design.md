@@ -239,13 +239,65 @@ Anything the parser doesn't recognize falls through to plain markdown rendering 
 
 ---
 
+## Auto-refresh on file change (v0.8.4+)
+
+Daily plans get rewritten throughout the day by multiple actors: the human (manual edits, the cockpit's own write-back), the `synthesis-daily-rituals` skill (morning / mid-day / end-of-day rituals), the `synthesis-slack-sync` skill (carries new threads into briefing), and any other automation that appends to the file. Without polling, the page silently drifts — the human sees decisions and tasks frozen at page-load time even after the file has changed underneath.
+
+The cockpit closes that gap with a 30-second poller that hits a tiny `GET /plans/:source/:date/mtime` endpoint and compares the result against the mtime baked into the page when it rendered. When the server's mtime is newer, the page reloads — same `window.location.reload()` path the existing post-mutation reloads use. The browser's no-store headers guarantee fresh content on reload.
+
+Reloads are skipped (deferred to the next tick) while:
+
+- a draft Edit textarea is open (would lose unsaved typing)
+- the Send-to-Slack confirm modal is visible
+- a decision or task button is disabled mid-request
+- any input or textarea inside the cockpit has focus
+- the document is hidden (no point reloading what no one is looking at; the next focus event triggers an immediate check)
+
+The endpoint is read-only and cheap: a single `stat()` call per request. No state is exposed beyond the file's mtime.
+
+## Cross-day rollover (v0.8.4+)
+
+Anything that lives on the priority list day after day without moving to done is a candidate to either ship today, explicitly de-prioritize (move out of `Priority Tasks`), or reframe (the task is malformed and that's why it never closes). The rollover view at `/plans/:source/rollover` surfaces those tasks.
+
+The view walks the source's `daily-plans/` directory for the last 60 days, parses each plan's priority-tasks section, and reports any task that has appeared in multiple plans where the most recent occurrence is still open. A "Rollover" link in the cockpit's glance bar takes you straight there.
+
+Identity is text-based. Two task list-items are "the same task" if their normalized text matches: leading list markers stripped, strikethrough and `✅ DONE HH:MM TZ` markers stripped, bold/italic markup stripped, em-dashes flattened, punctuation removed, case-folded, capped at 200 characters. This is deliberately tolerant — Rajiv's tasks tend to keep their leading bold title across days even as trailing context rotates. False negatives are tolerable; the audit script tells you when the corpus drifts.
+
+Threshold chips (≥7 / ≥14 / ≥30 days) re-query with `?days=N`. The default is ≥7 days, the conventional "I've been carrying this for a week" trigger.
+
+## Section-classification audit (v0.8.4+)
+
+`bun run scripts/audit-section-classification.ts [plansDir]` walks the given plans directory, parses each daily plan, classifies every H2 into one of the kinds the cockpit knows about, and reports the share that fall through to `other`. Defaults to the bundled demo plans if no argument is given.
+
+This is the regression check for the producer-consumer contract. The skill (`synthesis-daily-rituals`) writes new plans; the cockpit reads them; the contract is the shared vocabulary table in this doc and in the skill's `SKILL.md`. When the skill's vocabulary drifts and the cockpit hasn't caught up, the audit's `other` share rises above its catch-all baseline. That's the signal to add the new vocabulary to both files in the same commit.
+
+Sample output excerpt:
+
+```
+Classification (excluding the synthetic 'header' pre-section):
+
+  decisions             18    7.5%
+  priority-tasks        62   25.7%
+  drafts                47   19.5%
+  briefing              63   26.1%
+  ...
+  other                 14    5.8%
+
+Fall-through to 'other': 14 / 241 (5.8%)
+
+Unrecognized H2 headings (3 distinct):
+  [  9x]  Session Metrics     seen on: 2026-04-10, 2026-04-11, 2026-04-12, ...
+  [  4x]  Background Agent Demo
+  [  1x]  Lessons Referenced Today
+```
+
+Stable catch-alls like `Session Metrics` and `Background Agent Demo` are intentional and stay in `other`. New stragglers are the drift signal worth investigating.
+
 ## What the cockpit doesn't do
 
 By design:
 
 - **Mobile-optimized layout.** The cockpit collapses to single column at narrow widths but the design target is desktop. A mobile cockpit is a future phase.
-- **Live auto-refresh on file change.** The glance bar shows "last updated HH:MM ago" so you can see the file age, but the page doesn't auto-refresh when the file changes. Manual reload is the current path.
-- **Cross-day rollover.** "How many P0s have I been carrying for a week" is a clear future enhancement but not part of the cockpit today.
 - **Search across plans.** The in-page find searches within the current plan only.
 - **Calendar enrichment.** The `/plans` calendar list view is unchanged. Per-day counts on calendar cells are a future polish.
 

@@ -926,6 +926,118 @@ function layoutScript(): string {
           }
         }
       });
+
+      // ===== Cockpit auto-refresh on file mtime change =====
+      //
+      // The plan file is written by multiple actors throughout the day:
+      //   - the human (this UI's write-back; manual edits in another editor)
+      //   - the daily-rituals skill (morning/mid-day/end-of-day rituals)
+      //   - the slack-sync skill (carries new threads into briefing)
+      //   - any automation that appends to the file
+      //
+      // Without polling, the page silently drifts: the human sees decisions
+      // and tasks frozen at page-load time even after the file changed. This
+      // poller closes the gap by checking the file's mtime every 30s and
+      // soft-reloading when it has advanced beyond what we rendered.
+      //
+      // Skip rules — never reload while:
+      //   - a draft Edit textarea is open (would lose unsaved typing)
+      //   - the Send-to-Slack confirm modal is visible
+      //   - a decision is currently being recorded (button disabled mid-flight)
+      //   - any input/textarea inside the cockpit holds focus (user is typing)
+      //   - the document is hidden (no point reloading what no one is looking at;
+      //     the next focus event will trigger an immediate check)
+      //
+      // The reload uses window.location.reload() — same as the existing
+      // post-mutation reloads. The browser's no-store headers guarantee fresh
+      // content; the page rerenders cleanly with the new mtime baseline.
+      var __mtimePollHandle = null;
+      var __mtimePollVisHandle = null;
+      var __mtimePollIntervalMs = 30000;
+      var __mtimePollInflight = false;
+
+      function isCockpitBusy() {
+        var view = cockpitView();
+        if (!view) return false;
+        // Edit-mode textarea anywhere on the page.
+        if (document.querySelector('.draft-textarea')) return true;
+        // Send modal is visible.
+        var modal = document.querySelector('.send-modal-overlay.visible');
+        if (modal) return true;
+        // A decision option is mid-request (we disable buttons during the call).
+        var pendingDecision = view.querySelector('.cockpit-decision[data-decided="false"] .cockpit-decision-option:disabled');
+        if (pendingDecision) return true;
+        // A task checkbox is mid-request.
+        var pendingTask = view.querySelector('.cockpit-task-check:disabled:not([data-readonly="true"])');
+        if (pendingTask) {
+          // Read-only checkboxes (demo source) are always disabled — exclude them.
+          var task = pendingTask.closest('.cockpit-task');
+          if (task && task.dataset.readonly !== 'true') return true;
+        }
+        // User is typing into the find input or any focused textarea/input.
+        var ae = document.activeElement;
+        if (ae && (ae.tagName === 'TEXTAREA' || ae.tagName === 'INPUT')) {
+          // The find input is fine to interrupt with a reload; only block on
+          // typing into editable surfaces (textarea = draft body / find input
+          // is OK to reload because find filters DOM only).
+          if (ae.tagName === 'TEXTAREA') return true;
+          // INPUT — only block on the search/text find input if it has a value
+          // the user might lose (we don't store search queries server-side).
+          if (ae.classList && ae.classList.contains('cockpit-find-input') && ae.value) return true;
+        }
+        return false;
+      }
+
+      function checkMtime() {
+        if (__mtimePollInflight) return;
+        if (document.hidden) return;
+        var view = cockpitView();
+        if (!view) return;
+        var source = view.dataset.source;
+        var date = view.dataset.date;
+        var baseline = parseFloat(view.dataset.mtimeMs || '0');
+        if (!source || !date || !baseline) return;
+
+        var url = '/plans/' + encodeURIComponent(source) +
+                  '/' + encodeURIComponent(date) + '/mtime';
+        __mtimePollInflight = true;
+        fetch(url, { cache: 'no-store' }).then(function (res) {
+          if (!res.ok) return null;
+          return res.json();
+        }).then(function (body) {
+          __mtimePollInflight = false;
+          if (!body || body.ok !== true) return;
+          var serverMtime = parseFloat(body.mtimeMs);
+          if (!serverMtime || serverMtime <= baseline) return;
+          if (isCockpitBusy()) {
+            // Defer: the next tick will pick it up once the user is idle.
+            return;
+          }
+          // The file is newer than what we rendered — reload to show fresh state.
+          window.location.reload();
+        }).catch(function () {
+          __mtimePollInflight = false;
+        });
+      }
+
+      function startMtimePoller() {
+        if (__mtimePollHandle) return;
+        if (!cockpitView()) return;
+        __mtimePollHandle = setInterval(checkMtime, __mtimePollIntervalMs);
+        // Also re-check on focus (returning to the tab after a long idle).
+        if (!__mtimePollVisHandle) {
+          __mtimePollVisHandle = function () { if (!document.hidden) checkMtime(); };
+          document.addEventListener('visibilitychange', __mtimePollVisHandle);
+          window.addEventListener('focus', __mtimePollVisHandle);
+        }
+      }
+
+      // Start the poller after the page settles, but only on cockpit views.
+      if (cockpitView()) {
+        // Defer first poll by a few seconds — no need to race against the
+        // initial render.
+        setTimeout(startMtimePoller, 5000);
+      }
     })();
   `;
 }
