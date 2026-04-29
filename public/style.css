@@ -2576,3 +2576,260 @@ body[data-cockpit-focus="true"] .cockpit-shell .cockpit-header {
     display: none;
   }
 }
+
+/* =====================================================================
+   v0.9.2 — Cockpit usability pass: spacing, containment, breathing room
+   =====================================================================
+
+   The v0.9.0 layout shipped with several spacing bugs that compounded into
+   an unusable density: zero internal padding on the main column meant
+   pre-H2 markdown (Status / Morning ritual) was flush to the grid track
+   edge; the desktop media query reset .cockpit-aside-collapsible padding
+   to 0 which left calendar / project list / wins / waiting items glued
+   to the sidebar column edges; the .container-wide had no horizontal
+   padding so narrow desktops touched the viewport edge. This block fixes
+   all of those without changing the structural three-column model.
+
+   Order: container > main column > sidebar widgets > inner rows > calendar.
+*/
+
+/* --- Container: small horizontal padding when viewport is close to the
+   --- 1320px max-width so content never touches the screen edge. */
+@media (max-width: 1399px) {
+  .container.container-wide {
+    padding-left: 1em;
+    padding-right: 1em;
+  }
+}
+
+/* --- Main column: inset all children from the grid track edges. The
+   --- cockpit-region cards already have their own internal 22px padding,
+   --- so the total inset is column-pad + region-pad which reads as a
+   --- proper card-on-page rhythm. The bare children (cockpit-header
+   --- rendered-markdown, the legacy cockpit-glance) gain breathing room
+   --- they previously lacked. */
+.cockpit-main-column {
+  padding-left: 0.75em;
+  padding-right: 0.75em;
+}
+
+/* The cockpit-header is the pre-first-H2 markdown (Status: ..., Morning
+   ritual run: ..., a bulleted list of context). Currently it renders as
+   raw flush text right under the glance bar — the visually heaviest
+   block on the page, competing with MUST DO TODAY for first-glance
+   attention. Wrap it in a quiet callout: soft background, left accent,
+   reduced font, contained padding. The eye now flows past it to the
+   actionable region below. */
+.cockpit-main-column > .cockpit-header.rendered-markdown {
+  margin: 0.75em 0 1em;
+  padding: 0.85em 1.1em;
+  background: var(--cockpit-context-soft);
+  border-left: 3px solid var(--cockpit-border);
+  border-radius: 0 6px 6px 0;
+  font-size: 0.94em;
+  line-height: 1.55;
+  color: var(--cockpit-text-soft);
+}
+
+.cockpit-main-column > .cockpit-header.rendered-markdown > :first-child {
+  margin-top: 0;
+}
+
+.cockpit-main-column > .cockpit-header.rendered-markdown > :last-child {
+  margin-bottom: 0;
+}
+
+.cockpit-main-column > .cockpit-header.rendered-markdown ul,
+.cockpit-main-column > .cockpit-header.rendered-markdown ol {
+  margin-left: 0.25em;
+  padding-left: 1.25em;
+}
+
+/* --- Sidebar widgets: restore horizontal padding at desktop. The earlier
+   --- @media(min-width:1024px) block zeros .cockpit-aside-collapsible
+   --- padding to make the desktop sidebar look like a flat panel; that
+   --- was wrong — it pushed every list item, heading, and calendar cell
+   --- flush against the grid track edge. Override with modest horizontal
+   --- padding so all child widgets inset cleanly. */
+@media (min-width: 1024px) {
+  .cockpit-aside-collapsible {
+    padding: 0 0.5em;
+  }
+}
+
+/* List-item rows in the sidebars: small horizontal inset so dots and
+   text don't sit at the very inner edge of the panel. (Section blocks
+   themselves stay full-width inside the collapsible — the calendar
+   needs every pixel of column width to fit "Wed" / "Thu" headers
+   without wrapping.) */
+.cockpit-aside-list .cockpit-aside-row {
+  padding-left: 0.25em;
+  padding-right: 0.25em;
+}
+
+/* The aside-empty fallback ("No active projects.", "Nothing waiting on
+   others.") needs the same inset for visual alignment with the rows
+   above it. */
+.cockpit-aside-empty {
+  padding-left: 0.25em;
+  padding-right: 0.25em;
+}
+
+/* --- Mini calendar: keep cells tight horizontally so the sidebar fits
+   --- "Sun Mon Tue Wed Thu Fri Sat" headers without wrapping at 220px
+   --- column width. Vertical padding stays modest for date density. */
+.cockpit-mini-cal .calendar-grid th {
+  padding: 0.25em 0.05em;
+  font-size: 0.95em;
+  white-space: nowrap;
+}
+
+.cockpit-mini-cal .calendar-grid td {
+  padding: 0.3em 0.05em;
+}
+
+/* Today's highlight: soft background with a clearer outline so the
+   current date is visible at a glance without breaking the table grid
+   (TDs don't respect width: 1.9em — the column controls cell width). */
+.cockpit-mini-cal .calendar-grid td.cal-today {
+  background: var(--cockpit-action-soft);
+  border: 1px solid var(--cockpit-action);
+  border-radius: 4px;
+  font-weight: 700;
+}
+
+/* --- Sidebar headings: a touch more vertical breathing so the WAITING
+   --- ON / TODAY'S WINS / ACTIVE PROJECTS labels sit clearly above their
+   --- lists. */
+.cockpit-aside-heading {
+  padding-bottom: 0.35em;
+  margin-top: 0.25em;
+}
+
+/* --- Region card spacing: the 28px top/bottom margins on .cockpit-region
+   --- were correct for v0.8 but feel cramped in the narrower v0.9 main
+   --- column. Bump slightly. */
+.cockpit-shell .cockpit-region {
+  margin-top: 1.5em;
+  margin-bottom: 1.5em;
+}
+
+/* The MUST DO TODAY region is the focal point — give it a touch more
+   visual weight via subtle drop. */
+.cockpit-shell .cockpit-region-must-do {
+  padding-top: 0.5em;
+  padding-bottom: 0.5em;
+}
+
+/* --- Glance bar: it's the day's at-a-glance summary. A bit more
+   --- horizontal padding makes the counts/filter chips/nav row read as
+   --- a single contained card rather than a wall of widgets. */
+.cockpit-shell .cockpit-glance {
+  padding-left: 1.1em;
+  padding-right: 1.1em;
+}
+
+/* --- Mobile (≤1023px): the main column padding still applies but the
+   --- container-wide padding from the 1399px rule already gives outer
+   --- breathing. Reduce main-column padding slightly so we don't double-
+   --- pad on small screens. */
+@media (max-width: 1023px) {
+  .cockpit-main-column {
+    padding-left: 0.25em;
+    padding-right: 0.25em;
+  }
+}
+
+/* --- Phone (≤640px): tighten further so cards don't overhang. */
+@media (max-width: 640px) {
+  .container.container-wide {
+    padding-left: 0.6em;
+    padding-right: 0.6em;
+  }
+}
+
+/* --- Narrow-viewport overflow guards. The v0.9.1 sent-section <details>
+   --- collapses each sent draft into a one-line <summary>. At desktop
+   --- widths the summary's flex layout truncates the title via ellipsis;
+   --- but at narrow widths the browser computes <summary> display as
+   --- inline-block in some cases, which lets it escape the parent's
+   --- width and force horizontal page scroll. Force width: 100% and
+   --- box-sizing: border-box so the summary always fits its parent
+   --- regardless of the underlying display computation. */
+.cockpit-sent-summary,
+.cockpit-grounding-summary,
+.cockpit-collapsible-summary,
+.cockpit-aside-summary,
+.cockpit-bucket-summary {
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  min-width: 0;
+}
+
+/* Also constrain the parent <details> so collapsed/open content never
+   forces ancestor width. The cockpit-sent-section + grounding-collapsible
+   wrap the entire draft block; without max-width: 100% they could grow
+   when their content (long Slack pills, long URLs) is inline-rendered
+   inside the open body.
+
+   overflow: hidden is the backstop: Chromium computes <summary> display
+   as inline-block in some configurations (browser quirk that ignores
+   our `display: flex` rule), so the title's flex truncation doesn't
+   take effect. Clipping at the section level prevents overflowing
+   summary content from forcing the page to horizontally scroll. The
+   open body content uses overflow-wrap: anywhere (rule below) so this
+   clip only affects the closed-summary view. */
+.cockpit-sent-section,
+.cockpit-grounding-collapsible {
+  max-width: 100%;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+.cockpit-sent-section[open],
+.cockpit-grounding-collapsible[open] {
+  overflow: visible; /* once open, the body needs visible overflow for
+                        long-form content + nested collapsibles */
+}
+
+.cockpit-sent-section[open] > .cockpit-sent-summary,
+.cockpit-grounding-collapsible[open] > .cockpit-grounding-summary {
+  /* Closed-state needed clipping; open state can show full title since
+     the body below provides word-break treatment. */
+  overflow: hidden;
+}
+
+/* The drafts body may contain inline-rendered slack pills, channel links,
+   and long URLs that don't naturally wrap. Allow word-level breaking
+   and any-character breaking as a fallback so nothing escapes the
+   column at narrow widths. The desktop layout is unaffected — there's
+   plenty of room for natural word boundaries. */
+.cockpit-drafts-body,
+.cockpit-sent-content,
+.cockpit-collapsible-section.rendered-markdown,
+.cockpit-collapsible-body.rendered-markdown {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+/* PRE blocks inside any collapsible body should scroll horizontally
+   internally rather than expand the page. (The v0.9.0 rule covered
+   .cockpit-main-column pre / .cockpit-main-column .rendered-markdown
+   pre but missed pre nested inside other collapsibles.) */
+.cockpit-collapsible-body pre,
+.cockpit-sent-content pre,
+.cockpit-drafts-body pre {
+  overflow-x: auto;
+  max-width: 100%;
+}
+
+/* --- Page-header nav wrap at narrow widths. The Pico-default header
+   --- puts nav items + source picker on one line; at <640px viewport
+   --- they overflow, forcing horizontal page scroll on phones. Allow
+   --- the nav UL to wrap onto a second line. */
+@media (max-width: 640px) {
+  body > header.container nav > ul {
+    flex-wrap: wrap;
+  }
+}
