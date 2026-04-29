@@ -1071,6 +1071,63 @@ function layoutScript(): string {
         // initial render.
         setTimeout(startMtimePoller, 5000);
       }
+
+      // ===== v0.9.1: sidebar hide/show toggles =====
+      //
+      // The three-column shell can feel constraining when the user wants
+      // to focus on a long active draft. Either sidebar can be hidden via
+      // a small toggle in its header; state persists in localStorage so
+      // the choice survives reloads. With both sidebars hidden, the main
+      // column expands to fill the freed width.
+      var SIDEBAR_LEFT_KEY = 'sc_cockpit_left_hidden';
+      var SIDEBAR_RIGHT_KEY = 'sc_cockpit_right_hidden';
+
+      function applySidebarState() {
+        var shell = document.querySelector('.cockpit-shell');
+        if (!shell) return;
+        var leftHidden = false;
+        var rightHidden = false;
+        try {
+          leftHidden = localStorage.getItem(SIDEBAR_LEFT_KEY) === 'true';
+          rightHidden = localStorage.getItem(SIDEBAR_RIGHT_KEY) === 'true';
+        } catch (_) {}
+        shell.dataset.hideLeft = leftHidden ? 'true' : 'false';
+        shell.dataset.hideRight = rightHidden ? 'true' : 'false';
+        // Update the show buttons' visibility based on hidden state.
+        var showLeft = document.querySelector('.cockpit-show-left-btn');
+        var showRight = document.querySelector('.cockpit-show-right-btn');
+        if (showLeft) showLeft.hidden = !leftHidden;
+        if (showRight) showRight.hidden = !rightHidden;
+      }
+
+      function toggleSidebar(side) {
+        var key = side === 'left' ? SIDEBAR_LEFT_KEY : SIDEBAR_RIGHT_KEY;
+        var current = false;
+        try { current = localStorage.getItem(key) === 'true'; } catch (_) {}
+        try { localStorage.setItem(key, current ? 'false' : 'true'); } catch (_) {}
+        applySidebarState();
+      }
+
+      document.addEventListener('click', function(e) {
+        var t = e.target;
+        if (!t || !t.closest) return;
+        var hideBtn = t.closest('.cockpit-aside-hide-btn');
+        if (hideBtn) {
+          e.preventDefault();
+          toggleSidebar(hideBtn.dataset.side);
+          return;
+        }
+        var showBtn = t.closest('.cockpit-show-left-btn, .cockpit-show-right-btn');
+        if (showBtn) {
+          e.preventDefault();
+          var side = showBtn.classList.contains('cockpit-show-left-btn') ? 'left' : 'right';
+          toggleSidebar(side);
+          return;
+        }
+      });
+
+      // Apply persisted sidebar state on initial load.
+      if (cockpitView()) applySidebarState();
     })();
   `;
 }

@@ -146,7 +146,7 @@ export function readAndRenderPlanMarkdown(
       const id = ch?.id;
       const url = buildChannelUrl(slackCfg, id, undefined, name);
       const titleId = id ? ` (${id})` : "";
-      return `<a class="slack-channel-link" href="${escapeAttr(url)}" title="Open #${escapeAttr(name)}${escapeAttr(titleId)} in Slack">#${escapeHtml(name)}</a>`;
+      return `<a class="slack-channel-link" href="${escapeAttr(url)}" target="_blank" rel="noopener" title="Open #${escapeAttr(name)}${escapeAttr(titleId)} in Slack (new tab)">#${escapeHtml(name)}</a>`;
     }
   );
 
@@ -228,7 +228,12 @@ export function readAndRenderPlanForCockpit(
   const directoryIslandHtml = islandMatch ? islandMatch[0] : "";
   const fullHtml = fullHtmlWithIsland.replace(islandRe, "").trim();
 
-  const draftsHtml = collectAllDraftSections(fullHtml);
+  // The DRAFTS region uses just the extracted draft sections, with sent
+  // drafts wrapped in <details> for one-line collapse. The Full Markdown
+  // collapsible at the bottom uses the unwrapped fullHtml as an escape
+  // hatch — it shows everything verbatim.
+  const draftsForWrap = findDraftBlocks(raw);
+  const draftsHtml = wrapSentDraftSections(collectAllDraftSections(fullHtml), draftsForWrap);
 
   return {
     raw,
@@ -379,23 +384,23 @@ function renderDraftActions(
       // target.channelId is populated upstream when the directory has a match.
       const url = buildChannelUrl(opts.slack, target.channelId, undefined, target.channelName);
       parts.push(
-        `<a class="draft-action draft-read draft-slack" href="${escapeAttr(url)}">Open #${escapeAttr(target.channelName)} in Slack</a>`
+        `<a class="draft-action draft-read draft-slack" href="${escapeAttr(url)}" target="_blank" rel="noopener">Open #${escapeAttr(target.channelName)} in Slack</a>`
       );
     } else if (target.kind === "slack-dm" && target.channelId) {
       const url = buildChannelUrl(opts.slack, target.channelId);
       parts.push(
-        `<a class="draft-action draft-read draft-slack" href="${escapeAttr(url)}">Open DM in Slack</a>`
+        `<a class="draft-action draft-read draft-slack" href="${escapeAttr(url)}" target="_blank" rel="noopener">Open DM in Slack</a>`
       );
     } else if (target.kind === "slack-user" && target.userId) {
       const url = buildUserDmUrl(opts.slack, target.userId);
       parts.push(
-        `<a class="draft-action draft-read draft-slack" href="${escapeAttr(url)}">Open DM in Slack</a>`
+        `<a class="draft-action draft-read draft-slack" href="${escapeAttr(url)}" target="_blank" rel="noopener">Open DM in Slack</a>`
       );
     } else if (target.kind === "slack-thread" && (target.channelId || target.userId)) {
       const idForUrl = target.channelId || target.userId!;
       const url = buildChannelUrl(opts.slack, idForUrl, target.threadTs);
       parts.push(
-        `<a class="draft-action draft-read draft-slack" href="${escapeAttr(url)}">Open thread in Slack</a>`
+        `<a class="draft-action draft-read draft-slack" href="${escapeAttr(url)}" target="_blank" rel="noopener">Open thread in Slack</a>`
       );
     } else if (target.kind === "email" && target.email) {
       // Body is filled client-side from the message element; href has subject only as a fallback.
@@ -466,7 +471,7 @@ function renderSentBadge(
     if (idForUrl) {
       const url = buildChannelUrl(slack, idForUrl, draft.sentTs);
       parts.push(
-        `<a class="draft-action draft-sent-link" href="${escapeAttr(url)}">Open in Slack</a>`
+        `<a class="draft-action draft-sent-link" href="${escapeAttr(url)}" target="_blank" rel="noopener">Open in Slack</a>`
       );
     }
   }
@@ -583,25 +588,146 @@ function augmentDraftBlocks(
       ? ` data-draft-index="${draft.index}" data-draft-kind="${draft.kind}"`
       : "";
 
-    // v0.8.7+: sent-draft bodies render as <details> collapsed by default.
-    // Done drafts dominate visual weight late in the day — collapsing the
-    // body to a one-line summary is much calmer. Active drafts continue
-    // rendering as <div> with the body fully visible.
-    //
-    // Both forms share the same .draft-body-region class so the existing
-    // edit/copy/find DOM-walking code keeps working — element tag doesn't
-    // matter for those paths. (Edit mode never engages on sent drafts.)
-    let wrappedBody: string;
-    if (draft?.alreadySent) {
-      wrappedBody = `<details class="${wrapperClasses.join(" ")}"${wrapperAttrs}><summary class="draft-body-summary">Sent body · click to expand</summary>${bodyHtml}</details>${actionsHtml}`;
-    } else {
-      wrappedBody = `<div class="${wrapperClasses.join(" ")}"${wrapperAttrs}>${bodyHtml}</div>${actionsHtml}`;
-    }
+    // v0.9.1: body region rendering is uniform (a plain <div>) for both
+    // sent and active drafts. The "what to collapse" decision moves up
+    // a level to the whole-section wrapper applied AFTER this loop —
+    // see wrapSentDraftSections below.
+    const wrappedBody = `<div class="${wrapperClasses.join(" ")}"${wrapperAttrs}>${bodyHtml}</div>${actionsHtml}`;
 
-    sections[i] = before + wrappedBody + tail;
+    // v0.9.1: for active drafts, wrap the inline Grounding paragraph + its
+    // following list in <details> so the verification trail collapses by
+    // default. Body and action bar stay visible. For sent drafts we leave
+    // the tail untouched here — the whole section will be wrapped below.
+    const finalTail = draft?.alreadySent ? tail : collapseGroundingInTail(tail);
+
+    sections[i] = before + wrappedBody + finalTail;
   }
 
   return sections.join("");
+}
+
+/**
+ * Wrap the inline `<p><strong>Grounding:</strong></p>` paragraph plus the
+ * following list (ul/ol) in a <details> block so the verification trail is
+ * collapsed by default. Used for active drafts where the body must stay
+ * visible but the Grounding metadata shouldn't crowd the glance.
+ *
+ * Returns the tail string with the Grounding portion wrapped if found,
+ * otherwise the tail unchanged.
+ */
+function collapseGroundingInTail(tail: string): string {
+  const groundingRe = /(<p>\s*<strong>\s*Grounding\s*:?\s*<\/strong>\s*<\/p>)\s*(<(?:ul|ol)\b[\s\S]*?<\/(?:ul|ol)>)/i;
+  const m = tail.match(groundingRe);
+  if (!m || m.index === undefined) return tail;
+  const before = tail.slice(0, m.index);
+  const after = tail.slice(m.index + m[0].length);
+  const list = m[2];
+  const itemCount = (list.match(/<li\b/gi) || []).length;
+  const summaryLabel = itemCount > 0 ? `Grounding (${itemCount} item${itemCount === 1 ? "" : "s"})` : "Grounding";
+  const wrapped = `<details class="cockpit-grounding-collapsible"><summary class="cockpit-grounding-summary">${summaryLabel}</summary>${list}</details>`;
+  return before + wrapped + after;
+}
+
+/**
+ * Public entry point for the cockpit view: wrap each sent draft's section
+ * (heading + content) in a one-line collapsible `<details>`. Operates on
+ * the DRAFTS-region HTML (the output of `collectAllDraftSections`), NOT on
+ * the full document. The Full Markdown collapsible at the bottom of the
+ * cockpit deliberately gets the unwrapped form as an escape hatch.
+ *
+ * Second-pass: for each sent draft (identified by the presence of a
+ * `.draft-actions-sent` div in a section), wrap the section's heading and
+ * the section's content in a single `<details class="cockpit-sent-section">`.
+ *
+ * The summary is one line: ✓ + clean title (strikethrough + SENT metadata
+ * stripped) + sent time/channel suffix (when extractable) + a "View in Slack"
+ * permalink when the parsed sent metadata supplied one.
+ *
+ * Default state is closed — done drafts collapse fully and don't crowd the
+ * glance. Click the summary to expand the section's full content (Send-to,
+ * body, action bar, Grounding, etc.).
+ */
+export function wrapSentDraftSections(html: string, drafts: DraftBlock[]): string {
+  // Split by H1-H6 — same approach as augmentDraftBlocks, so we can pair
+  // each section content with its preceding heading.
+  const parts = html.split(/(<h[1-6][^>]*>[\s\S]*?<\/h[1-6]>)/);
+  const sentByIndex = new Map<number, DraftBlock>();
+  let draftCursor = 0;
+
+  // Build a draft-section iterator so we know which section index in the
+  // sections array corresponds to each draft.
+  for (let i = 0; i < parts.length; i++) {
+    const part = parts[i];
+    if (!part || /^<h[1-6]/.test(part)) continue;
+    if (!/<p>\s*<strong>(?:Send to|Channel):?<\/strong>/i.test(part)) continue;
+    const draft = drafts[draftCursor];
+    draftCursor++;
+    if (draft?.alreadySent) sentByIndex.set(i, draft);
+  }
+
+  if (sentByIndex.size === 0) return html;
+
+  // Walk again and wrap H3+content for each sent section.
+  for (const [contentIdx, draft] of sentByIndex) {
+    const headingIdx = contentIdx - 1;
+    if (headingIdx < 0 || !parts[headingIdx]) continue;
+    const headingHtml = parts[headingIdx];
+    const headingMatch = headingHtml.match(/<(h[1-6])[^>]*>([\s\S]*?)<\/\1>/);
+    if (!headingMatch) continue;
+    const headingTag = headingMatch[1];
+    const rawTitle = headingMatch[2];
+    const cleanTitle = stripSentDecorations(rawTitle);
+
+    const sentMeta = buildSentMeta(draft);
+    const summary = `
+      <summary class="cockpit-sent-summary">
+        <span class="cockpit-sent-checkmark" aria-hidden="true">✓</span>
+        <span class="cockpit-sent-title">${cleanTitle}</span>
+        ${sentMeta.metaText ? `<span class="cockpit-sent-meta">${sentMeta.metaText}</span>` : ""}
+        ${sentMeta.permalink ? `<a class="cockpit-sent-link" href="${escapeAttr(sentMeta.permalink)}" target="_blank" rel="noopener" onclick="event.stopPropagation();">View in Slack</a>` : ""}
+      </summary>
+    `.trim();
+
+    parts[headingIdx] = `<details class="cockpit-sent-section" data-draft-index="${draft.index}">${summary}<div class="cockpit-sent-content"><${headingTag} class="cockpit-sent-original-heading">${rawTitle}</${headingTag}>`;
+    parts[contentIdx] = parts[contentIdx] + `</div></details>`;
+  }
+
+  return parts.join("");
+}
+
+/**
+ * Strip strikethrough wrapping and the legacy "✅ SENT by..." metadata from
+ * an H3 heading text so the sent-section summary shows a clean title.
+ */
+function stripSentDecorations(headingHtml: string): string {
+  return headingHtml
+    .replace(/<del>([\s\S]*?)<\/del>/gi, "$1")    // <del>...</del>
+    .replace(/<s>([\s\S]*?)<\/s>/gi, "$1")        // <s>...</s>
+    .replace(/✅[\s\S]*?(?:SENT|sent)[\s\S]*$/, "")
+    .replace(/\bSENT\b[\s\S]*$/, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
+ * Build the sent-state metadata string for the summary line: a compact
+ * "sent <time> · <channel>" string plus an optional permalink. Extracted
+ * from the DraftBlock's parsed sent fields (sentAt, sentTs, sentPermalink)
+ * + the sendToText for the channel name.
+ */
+function buildSentMeta(draft: DraftBlock): { metaText: string; permalink?: string } {
+  const parts: string[] = [];
+  if (draft.sentAt) parts.push(escapeHtml(`sent ${draft.sentAt}`));
+  // Pull a #channel-name from sendToText if present.
+  const channelMatch = draft.sendToText?.match(/#([a-zA-Z][\w-]+)/);
+  if (channelMatch) parts.push(`#${escapeHtml(channelMatch[1])}`);
+  // For DM drafts, surface the recipient name if extractable.
+  const dmMatch = draft.sendToText?.match(/(?:DM with|@)\s*([A-Za-z][A-Za-z\s.'-]+?)(?:\s*\(|\s*$|\s*—)/);
+  if (!channelMatch && dmMatch) parts.push(`DM ${escapeHtml(dmMatch[1].trim())}`);
+  return {
+    metaText: parts.join(" · "),
+    permalink: draft.sentPermalink,
+  };
 }
 
 /**

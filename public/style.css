@@ -2326,3 +2326,253 @@ body[data-cockpit-focus="true"] .cockpit-shell .cockpit-shell-aside-right,
 body[data-cockpit-focus="true"] .cockpit-shell .cockpit-header {
   display: none;
 }
+
+/* =====================================================================
+   v0.9.1 — Sent-section collapse + Grounding collapse + sidebar toggles
+   ===================================================================== */
+
+/*
+ * Sent draft section: the entire H3 + body + Send-to + action bar +
+ * Grounding collapses to a one-line summary. The summary line uses a
+ * compact flex row: ✓ + clean title + sent-meta + permalink.
+ */
+.cockpit-sent-section {
+  border: 1px solid var(--cockpit-border-soft);
+  border-radius: 6px;
+  margin: 0.4em 0;
+  background: color-mix(in srgb, var(--cockpit-done-soft) 50%, var(--cockpit-surface));
+}
+
+.cockpit-sent-section[open] {
+  background: var(--cockpit-surface);
+  border-color: var(--cockpit-border);
+}
+
+.cockpit-sent-summary {
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 0.6em;
+  padding: 0.5em 0.8em;
+  font-size: 0.95em;
+  line-height: 1.4;
+  user-select: none;
+}
+
+.cockpit-sent-summary::-webkit-details-marker {
+  display: none;
+}
+
+.cockpit-sent-summary::before {
+  content: "▸";
+  flex-shrink: 0;
+  color: var(--cockpit-muted);
+  transition: transform 120ms ease-out;
+}
+
+.cockpit-sent-section[open] > .cockpit-sent-summary::before {
+  transform: rotate(90deg);
+}
+
+.cockpit-sent-checkmark {
+  flex-shrink: 0;
+  color: var(--cockpit-done);
+  font-weight: 700;
+  font-size: 1.1em;
+}
+
+.cockpit-sent-title {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 500;
+  color: var(--cockpit-text-soft);
+}
+
+.cockpit-sent-meta {
+  flex-shrink: 0;
+  font-size: 0.85em;
+  color: var(--cockpit-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.cockpit-sent-link {
+  flex-shrink: 0;
+  font-size: 0.85em;
+  color: var(--cockpit-action);
+  text-decoration: none;
+  padding: 0.15em 0.5em;
+  border: 1px solid var(--cockpit-border);
+  border-radius: 4px;
+  background: var(--cockpit-surface-elev);
+}
+
+.cockpit-sent-link:hover {
+  border-color: var(--cockpit-action);
+  background: var(--cockpit-action-soft);
+}
+
+.cockpit-sent-content {
+  padding: 0.5em 0.9em 0.8em;
+  border-top: 1px dashed var(--cockpit-border);
+}
+
+.cockpit-sent-original-heading {
+  font-size: 0.95rem !important;
+  margin-top: 0.3em !important;
+  margin-bottom: 0.5em !important;
+  color: var(--cockpit-muted) !important;
+}
+
+/*
+ * Grounding collapse for active drafts. Same chevron + summary aesthetic
+ * as the sent-section but smaller scale — it's nested inside an active
+ * draft section, not a top-level collapse.
+ */
+.cockpit-grounding-collapsible {
+  margin: 0.5em 0;
+  border: 1px solid var(--cockpit-border-soft);
+  border-radius: 4px;
+  padding: 0;
+}
+
+.cockpit-grounding-summary {
+  cursor: pointer;
+  list-style: none;
+  padding: 0.35em 0.7em;
+  font-size: 0.85em;
+  font-weight: 500;
+  color: var(--cockpit-context);
+  background: var(--cockpit-surface);
+  user-select: none;
+}
+
+.cockpit-grounding-summary::-webkit-details-marker {
+  display: none;
+}
+
+.cockpit-grounding-summary::before {
+  content: "▸ ";
+  display: inline-block;
+  margin-right: 0.25em;
+  transition: transform 120ms ease-out;
+}
+
+.cockpit-grounding-collapsible[open] > .cockpit-grounding-summary::before {
+  transform: rotate(90deg);
+}
+
+.cockpit-grounding-summary:hover {
+  color: var(--cockpit-action);
+}
+
+.cockpit-grounding-collapsible[open] > .cockpit-grounding-summary {
+  border-bottom: 1px solid var(--cockpit-border-soft);
+}
+
+.cockpit-grounding-collapsible > ul,
+.cockpit-grounding-collapsible > ol {
+  margin: 0.4em 0.7em;
+}
+
+/*
+ * Sidebar hide/show — user-toggleable at desktop widths (≥1024px).
+ *
+ * Each sidebar's <summary> has a small × button that, when clicked,
+ * toggles `data-hide-left="true"` or `data-hide-right="true"` on the
+ * cockpit-shell. CSS hides the sidebar and reflows the grid so the main
+ * column gets the freed width. State persists in localStorage.
+ *
+ * When a sidebar is hidden, a small "▸ Calendar & Projects" / "Wins &
+ * Waiting On ◂" button appears in the main column header (the row above
+ * the glance bar). Clicking it brings the sidebar back.
+ */
+.cockpit-aside-hide-btn {
+  flex-shrink: 0;
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--cockpit-muted);
+  font-size: 1.1em;
+  line-height: 1;
+  padding: 0.1em 0.4em;
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+.cockpit-aside-hide-btn:hover {
+  border-color: var(--cockpit-border);
+  color: var(--cockpit-critical);
+  background: var(--cockpit-surface-elev);
+}
+
+.cockpit-aside-collapsible > .cockpit-aside-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5em;
+}
+
+/* Hide-state on the shell. */
+.cockpit-shell[data-hide-left="true"] .cockpit-shell-aside-left {
+  display: none;
+}
+
+.cockpit-shell[data-hide-right="true"] .cockpit-shell-aside-right {
+  display: none;
+}
+
+/* Reflow the grid based on hidden sidebars. */
+.cockpit-shell[data-hide-left="true"][data-hide-right="true"] .cockpit-shell-grid {
+  grid-template-columns: 1fr;
+}
+
+.cockpit-shell[data-hide-left="true"]:not([data-hide-right="true"]) .cockpit-shell-grid {
+  grid-template-columns: minmax(0, 1fr) 270px;
+}
+
+.cockpit-shell[data-hide-right="true"]:not([data-hide-left="true"]) .cockpit-shell-grid {
+  grid-template-columns: 220px minmax(0, 1fr);
+}
+
+/* Show-sidebar buttons in the main column header. */
+.cockpit-show-sidebars-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5em;
+  margin-bottom: 0.5em;
+  min-height: 0;
+}
+
+.cockpit-show-left-btn,
+.cockpit-show-right-btn {
+  background: var(--cockpit-surface-elev);
+  border: 1px solid var(--cockpit-border);
+  color: var(--cockpit-context);
+  padding: 0.3em 0.7em;
+  border-radius: 4px;
+  font-size: 0.85em;
+  cursor: pointer;
+}
+
+.cockpit-show-left-btn:hover,
+.cockpit-show-right-btn:hover {
+  border-color: var(--cockpit-action);
+  color: var(--cockpit-action);
+}
+
+.cockpit-show-right-btn {
+  margin-left: auto;
+}
+
+/* Force these toggle buttons hidden when on mobile (the existing 1024px
+ * collapse handles mobile differently — sidebars become inline <details>
+ * blocks, not hidden by toggle). */
+@media (max-width: 1023px) {
+  .cockpit-aside-hide-btn,
+  .cockpit-show-sidebars-row {
+    display: none;
+  }
+}

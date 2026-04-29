@@ -78,6 +78,11 @@ export function renderMainColumn(opts: MainColumnOpts): string {
 
   return `
     <div class="cockpit-main-column">
+      <div class="cockpit-show-sidebars-row">
+        <button type="button" class="cockpit-show-left-btn" hidden aria-label="Show left sidebar" title="Show calendar &amp; projects sidebar">▸ Calendar &amp; Projects</button>
+        <button type="button" class="cockpit-show-right-btn" hidden aria-label="Show right sidebar" title="Show wins &amp; waiting sidebar">Wins &amp; Waiting On ◂</button>
+      </div>
+
       <header class="cockpit-glance" role="region" aria-label="Day at a glance">
         <div class="cockpit-glance-title">
           <strong>${escapeHtml(dayOfWeek)}, ${escapeHtml(opts.date)}</strong>

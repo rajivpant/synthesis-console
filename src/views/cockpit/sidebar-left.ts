@@ -69,7 +69,10 @@ export function renderSidebarLeft(opts: SidebarLeftOpts): string {
   return `
     <aside class="cockpit-shell-aside-left" aria-label="Calendar and projects">
       <details class="cockpit-aside-collapsible cockpit-aside-left-collapsible" open>
-        <summary class="cockpit-aside-summary">Calendar &amp; Projects</summary>
+        <summary class="cockpit-aside-summary">
+          <span>Calendar &amp; Projects</span>
+          <button type="button" class="cockpit-aside-hide-btn" data-side="left" aria-label="Hide left sidebar" title="Hide sidebar (click to bring back via main column)">×</button>
+        </summary>
         <div class="cockpit-aside-content">
 
           <section class="cockpit-aside-section cockpit-aside-section-calendar" aria-label="Calendar">

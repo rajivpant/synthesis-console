@@ -60,7 +60,10 @@ export function renderSidebarRight(opts: SidebarRightOpts): string {
   return `
     <aside class="cockpit-shell-aside-right" aria-label="Today's wins and waiting on others">
       <details class="cockpit-aside-collapsible cockpit-aside-right-collapsible" open>
-        <summary class="cockpit-aside-summary">Wins &amp; Waiting On</summary>
+        <summary class="cockpit-aside-summary">
+          <span>Wins &amp; Waiting On</span>
+          <button type="button" class="cockpit-aside-hide-btn" data-side="right" aria-label="Hide right sidebar" title="Hide sidebar (click to bring back via main column)">×</button>
+        </summary>
         <div class="cockpit-aside-content">
 
           <section class="cockpit-aside-section cockpit-aside-section-wins" aria-label="Today's wins">
