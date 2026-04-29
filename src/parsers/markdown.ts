@@ -228,7 +228,7 @@ export function readAndRenderPlanForCockpit(
   const directoryIslandHtml = islandMatch ? islandMatch[0] : "";
   const fullHtml = fullHtmlWithIsland.replace(islandRe, "").trim();
 
-  const draftsHtml = sliceDraftsHtml(fullHtml, sections);
+  const draftsHtml = collectAllDraftSections(fullHtml);
 
   return {
     raw,
@@ -241,37 +241,37 @@ export function readAndRenderPlanForCockpit(
 }
 
 /**
- * Slice out the HTML for the drafts H2 section from the full rendered HTML.
- * Uses the section detector's H2 heading-line knowledge to find the right
- * H2 element by its text content (case-insensitive match for "draft" or
- * "unsent" prefix).
+ * Collect every draft H3 sub-tree from the rendered HTML, regardless of which
+ * H2 it lives under.
  *
- * Returns "" if no drafts section exists.
+ * Plans grow throughout the day. The morning ritual creates a "Drafts — Ready
+ * to Send" H2 with the day's first drafts; later, new drafts get inserted in
+ * topical H2 sections like "Things to Know" or "Mid-day Sync" alongside the
+ * context that prompted them. Slicing only the drafts H2 misses anything
+ * added later — that's a correctness bug. The cockpit's DRAFTS region must
+ * surface every `**Send to:**` block in the document, in document order.
+ *
+ * A draft is recognized by either signal (belt-and-suspenders):
+ *   - the body contains a draft-actions div (action bar added by the
+ *     augmentation step), OR
+ *   - the body contains `<strong>Send to:</strong>` or `<strong>Channel:</strong>`
+ *
+ * We split by H2 AND H3 so each H3's body ends at the next H3 OR H2,
+ * preventing over-inclusion of unrelated content from later sections.
  */
-function sliceDraftsHtml(fullHtml: string, sections: PlanSection[]): string {
-  const draftsSection = sections.find((s) => s.kind === "drafts");
-  if (!draftsSection) return "";
-
-  // Split the full HTML by H2 boundaries.
-  const parts = fullHtml.split(/(<h2[^>]*>[\s\S]*?<\/h2>)/);
-  // parts is [pre-H2-prose, H2#1, body#1, H2#2, body#2, ...]
+function collectAllDraftSections(fullHtml: string): string {
+  const parts = fullHtml.split(/(<h[23][^>]*>[\s\S]*?<\/h[23]>)/);
+  const collected: string[] = [];
   for (let i = 1; i < parts.length; i += 2) {
-    const headingHtml = parts[i];
-    const bodyHtml = parts[i + 1] || "";
-    // Strip tags from heading to compare to raw heading text.
-    const headingText = headingHtml.replace(/<[^>]+>/g, "").trim();
-    if (looseHeadingMatch(headingText, draftsSection.rawHeading)) {
-      return headingHtml + bodyHtml;
-    }
+    const heading = parts[i];
+    const body = parts[i + 1] || "";
+    if (!/^<h3\b/i.test(heading)) continue;
+    const hasActionBar = /class="draft-actions/.test(body);
+    const hasSendTo = /<strong>\s*(?:Send to|Channel)\s*:?\s*<\/strong>/i.test(body);
+    if (!hasActionBar && !hasSendTo) continue;
+    collected.push(heading + body);
   }
-  return "";
-}
-
-function looseHeadingMatch(a: string, b: string): boolean {
-  // Compare on alphanumeric-only lowercase to avoid emoji and whitespace
-  // differences (markdown-it strips some chars during rendering).
-  const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
-  return norm(a) === norm(b);
+  return collected.join("\n");
 }
 
 interface SendToTarget {
