@@ -60,13 +60,20 @@ export interface DecisionOption {
 export interface Decision {
   /** Document-order index across all decisions in the file. Stable handle. */
   index: number;
-  /** 0-based line of the H3 question heading. */
+  /** 0-based line of the H3 question heading (or the H2 line for synthetic asks). */
   headingLine: number;
   /** Inclusive end line of this decision's content (next H3 or section end). */
   endLine: number;
-  /** H3 text (e.g. "1. Force-push origin/develop to trendhunter/develop?"). */
+  /** H3 text (e.g. "1. Force-push origin/develop?") or H2 text for synthetic. */
   question: string;
+  /** True when this decision was synthesized from an H2 ask with no H3 children
+   *  (e.g. "## Open ask for Rajiv" with prose body). For these, options is
+   *  empty and the renderer shows bodyMarkdown verbatim. */
+  synthetic: boolean;
   options: DecisionOption[];
+  /** Free-form prose body — for synthetic decisions OR for decisions whose
+   *  H3 has additional context beyond the options. */
+  bodyMarkdown: string;
   /** Recommendation letter if a `Recommendation: **A**` line is present. */
   recommendationLetter?: string;
   /** Inline body of the recommendation (without the bold letter marker). */
@@ -109,29 +116,62 @@ export interface TaskBucket {
 
 const md = new MarkdownIt({ html: true, linkify: true, typographer: true });
 
-/** Heading classifier — substring + case-insensitive. First match wins. */
+/**
+ * Heading classifier — substring + case-insensitive. First match wins.
+ *
+ * The contract with synthesis-daily-rituals (the skill that writes daily
+ * plans) is documented in `docs/cockpit-design.md`. Both repos must stay
+ * in sync. This classifier is intentionally tolerant: agentic skills may
+ * deviate from canonical names (LLMs aren't deterministic), and historic
+ * plans (March 2026 onwards) used different vocabulary. Anything not
+ * matching falls through to `other` and renders as plain markdown — never
+ * lost, just not specially typed.
+ *
+ * Test corpus: every H2 observed across `daily-plans/` (~260 distinct
+ * variants); the patterns below cover the substantive ones, and the
+ * `other` fallback handles the long tail without breaking.
+ */
 function classifyH2(text: string): SectionKind {
-  const t = text.toLowerCase();
-  if (/decisions?\s+(needed|to\s+make)/.test(t)) return "decisions";
-  if (/^priority\s+tasks?\b|^tasks?\s+(for|today|remaining)\b|^tasks?\s*$|^tasks?\s*\(/.test(t)) return "priority-tasks";
-  if (/^drafts?\b|unsent\s*[—-]\s*ready/.test(t)) return "drafts";
-  if (/standup/.test(t)) return "standup";
-  if (/sent\s+messages?/.test(t)) return "sent-messages";
-  if (/waiting\s+on/.test(t)) return "waiting";
-  if (/(?:open\s+)?pr\s+queue|open\s+prs?/.test(t)) return "pr-queue";
-  if (/sync\s+state|staging\/deployment|deployment\s+status/.test(t)) return "sync-state";
-  if (/^completed\s+today/.test(t)) return "completed";
-  if (/what\s+happened|big\s+things|things\s+to\s+know|things\s+rajiv\s+should\s+know|carried\s+(from|items)|mid-?day\s+sync|summary[:]/.test(t)) return "briefing";
+  // Strip strikethrough markers and emoji prefixes so headings like
+  // "~~CRITICAL: v0.81.0 Staging Regressions~~" still classify.
+  const t = text
+    .replace(/~~/g, "")
+    .replace(/[🚨🔥🚀🟡🟢💡📞🤖🧪🆕✅⚠️⛔🎯📋🔧📌]/g, "")
+    .trim()
+    .toLowerCase();
+  // Decisions / open asks — anything Rajiv needs to attend to / decide.
+  if (/decisions?\s+(?:needed|to\s+make)|open\s+asks?\b|asks?\s+for\s+rajiv|open\s+items?\b|need(?:s)?\s+(?:your\s+)?attention|open\s+quality\s+concerns?/i.test(t)) return "decisions";
+  // Priority tasks.
+  if (/^priority\s+tasks?\b|^tasks?(?:\s+for|\s+today|\s+remaining|\b)|^today'?s?\s+(?:tasks?|priorit|suggested)|^still\s+to\s+do|^this\s+week\b|^remaining\s+(?:tasks?|work)|^pending\s+(?:this|from)/i.test(t)) return "priority-tasks";
+  // Drafts.
+  if (/^drafts?\b|unsent\s*(?:[—-]\s*)?(?:ready|drafts?)|^dm\s+reply\s+drafts?|^draft\s+messages?|^messages\s*$|^next\s+steps?\b|^pending\s+emails?|^scheduled\s+for\s+(?:tomorrow|later)/i.test(t)) return "drafts";
+  // Standup.
+  if (/standup|newsroom\s+training/i.test(t)) return "standup";
+  // Sent message log.
+  if (/sent\s+messages?|^messages\s+sent/i.test(t)) return "sent-messages";
+  // Waiting on others.
+  if (/waiting\s+on|delegated\s+to\s+team/i.test(t)) return "waiting";
+  // PR queue.
+  if (/(?:open\s+)?pr\s+queue|open\s+prs?|new\s+prs?(?:\s|$)|prs?\s+ready\s+for\s+review|pr\s+reviews?\s+completed/i.test(t)) return "pr-queue";
+  // Sync / staging / deployment state.
+  if (/sync\s+state|staging\/deployment|(?:deployment|staging|pre-?migration|post-?release|release)\s+status|files\s+(?:created|modified)|test\s+results|^staging\s*[:]/i.test(t)) return "sync-state";
+  // Completed-today log.
+  if (/^completed\s+(?:today|this)/i.test(t)) return "completed";
+  // Briefing — context that's read once.
+  if (/what\s+happened|what\s+changed|big\s+things|things\s+(?:to\s+know|rajiv\s+should\s+know)|carried?\s+(?:from|items|forward)|carry\s+forward|mid-?day\s+sync|morning\s+sync|from\s+slack|state\s+catch-?up|day\s+summary|end\s+of\s+day\s+summary|^summary[:]|^bugs\b|qa\s+(?:findings|results)|^critical[:]?|^context\b|what\s+to\s+watch|future\s+work|post-?release\s*[:]?\s*issues?|feature\s+requests?\s+\(carryover\)|release\s+process\s+sync/i.test(t)) return "briefing";
   return "other";
 }
 
 function classifyH3(text: string): TaskSemantic {
   const t = text.toLowerCase();
-  if (/not\s+negotiable|high\s+priority|critical|immediate/.test(t)) return "p0";
-  if (/should\s+make\s+it|medium\s+priority/.test(t)) return "p1";
-  if (/can\s+slip|lower\s+priority/.test(t)) return "p2";
-  if (/^stale\b|stale\s+target|stale\s+—|stale\s+\(/.test(t)) return "stale";
-  if (/^watch\b|watch\s*\/|waiting/.test(t)) return "watch";
+  if (/not\s+negotiable|high\s+priority|critical|immediate|do\s+today\b.*(?:not\s+negotiable|must|critical)?$/i.test(t) && !/can\s+slip|should\s+make/i.test(t)) {
+    if (/not\s+negotiable|high\s+priority|critical|immediate/i.test(t)) return "p0";
+  }
+  if (/not\s+negotiable|^high\s+priority|critical|immediate/i.test(t)) return "p0";
+  if (/should\s+make\s+it|medium\s+priority/i.test(t)) return "p1";
+  if (/can\s+slip|lower\s+priority|next\s+week|before\s+\w+\s+\d+/i.test(t)) return "p2";
+  if (/^stale\b|stale\s+target|stale\s+—|stale\s+\(/i.test(t)) return "stale";
+  if (/^watch\b|watch\s*\/|waiting|carried\s+(?:over|forward)/i.test(t)) return "watch";
   return "other";
 }
 
@@ -199,7 +239,7 @@ export function findPlanSections(raw: string): PlanSection[] {
     };
 
     if (kind === "decisions") {
-      const result = extractDecisions(lines, h2.line, endLine, decisionIndex);
+      const result = extractDecisions(lines, h2.line, endLine, decisionIndex, h2.text);
       section.decisions = result.decisions;
       decisionIndex = result.nextIndex;
     } else if (kind === "priority-tasks") {
@@ -226,7 +266,8 @@ function extractDecisions(
   lines: string[],
   h2Line: number,
   h2EndLine: number,
-  startIndex: number
+  startIndex: number,
+  h2Text: string
 ): { decisions: Decision[]; nextIndex: number } {
   // Find all H3 lines within this section.
   const h3s: { line: number; text: string }[] = [];
@@ -235,6 +276,33 @@ function extractDecisions(
     if (/^###\s+/.test(ln)) {
       h3s.push({ line: i, text: readHeadingText(lines, i) });
     }
+  }
+
+  // No H3s? Synthesize a single decision card from the H2 prose so an
+  // "Open ask for Rajiv" with just a paragraph body still surfaces in
+  // NEEDS YOU. The cockpit renders synthetic decisions as a card with the
+  // body verbatim, no option buttons.
+  if (h3s.length === 0) {
+    const bodyLines = lines.slice(h2Line + 1, h2EndLine);
+    const bodyMarkdown = bodyLines.join("\n").trim();
+    if (bodyMarkdown.length === 0) {
+      return { decisions: [], nextIndex: startIndex };
+    }
+    return {
+      decisions: [
+        {
+          index: startIndex,
+          headingLine: h2Line,
+          endLine: h2EndLine,
+          question: h2Text.replace(/^\d+\.\s*/, "").trim(),
+          synthetic: true,
+          options: [],
+          bodyMarkdown,
+          decided: false,
+        },
+      ],
+      nextIndex: startIndex + 1,
+    };
   }
 
   const decisions: Decision[] = [];
@@ -246,6 +314,7 @@ function extractDecisions(
     const question = h3.text.replace(/^\d+\.\s*/, "").trim();
 
     const options: DecisionOption[] = [];
+    const bodyParts: string[] = [];
     let recommendationLetter: string | undefined;
     let recommendationBody: string | undefined;
     let decided = false;
@@ -275,6 +344,9 @@ function extractDecisions(
         decidedAt = decMatch[2].trim();
         continue;
       }
+
+      // Anything else is body context.
+      bodyParts.push(ln);
     }
 
     decisions.push({
@@ -282,7 +354,9 @@ function extractDecisions(
       headingLine: h3.line,
       endLine,
       question,
+      synthetic: options.length === 0,
       options,
+      bodyMarkdown: bodyParts.join("\n").trim(),
       recommendationLetter,
       recommendationBody,
       decided,

@@ -177,6 +177,26 @@ function renderNeedsYou(decisions: Decision[], opts: PlanCockpitOpts): string {
 }
 
 function renderDecisionCard(d: Decision, opts: PlanCockpitOpts): string {
+  const decidedNote = d.decided
+    ? `<p class="cockpit-decision-decided-note">Decided: <strong>Option ${escapeHtml(d.decidedOption || "")}</strong>${d.decidedAt ? ` — ${escapeHtml(d.decidedAt)}` : ""}</p>`
+    : "";
+
+  // Synthetic / no-options case: show the question + body prose verbatim,
+  // no option buttons. Used for "Open ask for Rajiv"-style asks where the
+  // skill emitted a single H2 with prose instead of A/B/C structure. The
+  // user can still see the ask in NEEDS YOU and act on it (edit the file
+  // by hand to mark resolved).
+  if (d.options.length === 0) {
+    const body = d.bodyMarkdown ? md.render(d.bodyMarkdown) : "";
+    return `
+      <article class="cockpit-card cockpit-decision cockpit-decision-ask" data-decision-index="${d.index}" data-decided="${d.decided ? "true" : "false"}">
+        <h3 class="cockpit-decision-question">${escapeHtml(d.question)}</h3>
+        ${decidedNote}
+        <div class="cockpit-decision-ask-body rendered-markdown">${body}</div>
+      </article>
+    `;
+  }
+
   const optionButtons = d.options
     .map((o) => {
       const isChosen = d.decided && d.decidedOption === o.letter;
@@ -201,19 +221,21 @@ function renderDecisionCard(d: Decision, opts: PlanCockpitOpts): string {
     })
     .join("\n");
 
-  const decidedNote = d.decided
-    ? `<p class="cockpit-decision-decided-note">Decided: <strong>Option ${escapeHtml(d.decidedOption || "")}</strong>${d.decidedAt ? ` — ${escapeHtml(d.decidedAt)}` : ""}</p>`
-    : "";
-
   const recommendation =
     !d.decided && d.recommendationLetter
       ? `<p class="cockpit-decision-rec"><strong>Recommendation:</strong> Option ${escapeHtml(d.recommendationLetter)}${d.recommendationBody ? ` — ${md.renderInline(d.recommendationBody)}` : ""}</p>`
       : "";
 
+  // Inline body context (paragraphs that aren't options or recommendation).
+  const contextBody = d.bodyMarkdown && d.bodyMarkdown.length > 0
+    ? `<div class="cockpit-decision-context rendered-markdown">${md.render(d.bodyMarkdown)}</div>`
+    : "";
+
   return `
     <article class="cockpit-card cockpit-decision" data-decision-index="${d.index}" data-decided="${d.decided ? "true" : "false"}">
       <h3 class="cockpit-decision-question">${escapeHtml(d.question)}</h3>
       ${decidedNote}
+      ${contextBody}
       <div class="cockpit-decision-options" role="group" aria-label="Decision options">
         ${optionButtons}
       </div>

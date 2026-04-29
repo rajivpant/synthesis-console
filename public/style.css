@@ -1463,6 +1463,35 @@ footer {
   color: var(--cockpit-critical);
 }
 
+/* Synthetic ask (H2 with prose, no Option A/B/C). Renders as a card with
+   the body prose visible so the user can see what's being asked. */
+.cockpit-decision-ask {
+  background: var(--cockpit-critical-soft);
+  border-color: rgba(193, 74, 48, 0.2);
+}
+
+.cockpit-decision-ask-body {
+  margin-top: 0.4em;
+  font-size: 0.94em;
+  line-height: 1.45;
+  color: var(--cockpit-text);
+}
+
+.cockpit-decision-ask-body :first-child { margin-top: 0; }
+.cockpit-decision-ask-body :last-child  { margin-bottom: 0; }
+
+/* Inline body/context paragraphs above options (A/B/C decisions with
+   additional explanatory text in the H3 body). */
+.cockpit-decision-context {
+  margin: 0.3em 0 0.6em;
+  font-size: 0.92em;
+  line-height: 1.45;
+  color: var(--cockpit-text-soft);
+}
+
+.cockpit-decision-context :first-child { margin-top: 0; }
+.cockpit-decision-context :last-child  { margin-bottom: 0; }
+
 /* ---- Task buckets ---- */
 .cockpit-bucket {
   background: var(--cockpit-surface-elev);

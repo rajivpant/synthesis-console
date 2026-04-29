@@ -4,6 +4,20 @@ The daily plan cockpit is the synthesis console's smart rendering for `/plans/:s
 
 This page describes what the cockpit recognizes, how to format your plans for the best result, and how it falls back when you don't.
 
+## Contract with synthesis-daily-rituals
+
+The cockpit is the **consumer** of daily plan files. The skill that **produces** them is [`synthesis-daily-rituals`](https://github.com/synthesisengineering/synthesis-skills/tree/main/synthesis-daily-rituals) (v2.4.0+), which writes plans into a person-scoped `daily-plans/` directory under your personal ai-knowledge repo.
+
+The vocabulary table below is the **producer-consumer contract**:
+
+- The skill writes plans using the canonical H2 names listed below (preferred) or any of the recognized synonyms (also supported).
+- The console parses those H2s into typed sections and renders the cockpit accordingly.
+- Anything outside this vocabulary falls through to plain markdown rendering inside a lower-row `<details>` element. **Nothing is ever lost** — non-recognized sections still display, just without the typed cockpit treatment.
+
+Both repos must stay in sync. When changing the vocabulary table here, update [`synthesis-daily-rituals/SKILL.md`](https://github.com/synthesisengineering/synthesis-skills/blob/main/synthesis-daily-rituals/SKILL.md) "Required File Structure" section in the same commit.
+
+**Why this matters:** the skill is driven by an LLM, and LLMs aren't deterministic. They sometimes invent new section names ("Open ask for Rajiv" when "Decisions needed" was specified) or restructure a draft (inline DM under "Things to Know" rather than under "Drafts"). The cockpit is intentionally tolerant of both — multiple synonyms classify to the same section type, and drafts are aggregated from anywhere in the document — so plans render correctly even when the writer drifts from the canonical template.
+
 ---
 
 ## Why a cockpit, not a viewer
@@ -41,24 +55,25 @@ A `Focus` filter chip strips the page to NEEDS YOU + DRAFTS + first task bucket.
 
 ---
 
-## How section detection works
+## Canonical H2 vocabulary (v0.8.3+)
 
-The parser walks the markdown's H2 headings and matches their text (case-insensitive, substring) against a known vocabulary. The first match wins.
+The parser walks the markdown's H2 headings and classifies each (case-insensitive, substring match, first match wins). Strikethrough markers (`~~...~~`) and emoji prefixes (🚨🔥🚀 etc.) are stripped before matching.
 
-| H2 heading text contains... | Section kind |
-|----------------------------|--------------|
-| "Decisions needed" | `decisions` |
-| "Priority Tasks" or "Tasks for" | `priority-tasks` |
-| "Drafts" (with em-dash or hyphen) | `drafts` |
-| "What happened" / "Big things" / "Things to know" / "Context" | `briefing` |
-| "Standup" | `standup` |
-| "Sent Messages" | `sent-messages` |
-| "Waiting On" | `waiting` |
-| "Open PR Queue" / "PR Queue" | `pr-queue` |
-| "Sync state" | `sync-state` |
-| anything else | `other` |
+| Cockpit region / kind | Canonical H2 name | Recognized synonyms |
+|----------------------|-------------------|---------------------|
+| **decisions** (NEEDS YOU) | `Decisions needed` | "Decisions to make", "Open ask for Rajiv", "Asks for Rajiv", "Open Items", "Needs your attention", "Open Quality Concerns" |
+| **priority-tasks** (TODAY) | `Priority Tasks` | "Tasks", "Tasks for [Person]", "Tasks Today", "Today's Tasks", "Today's Priorities", "Still To Do", "This Week", "Remaining Tasks", "Pending This Session" |
+| **drafts** (DRAFTS) | `Drafts — Ready to Send` | "Drafts", "Unsent — Ready to Send", "Unsent Drafts", "DM Reply Drafts", "Draft Messages", "Next Steps", "Pending Emails", "Scheduled for Tomorrow" |
+| **standup** | `Standup Highlights` | "Standup Transcript", any heading with "standup", "Newsroom Training" |
+| **sent-messages** | `Sent Messages` | "Messages Sent" |
+| **waiting** | `Waiting On Others` | "Waiting on", "Delegated to Team" |
+| **pr-queue** | `Open PR Queue` | "PR Queue", "Open PRs", "New PRs", "PRs Ready for Review", "PR Reviews Completed" |
+| **sync-state** | `Sync state` | "Staging/Deployment Status", "Deployment Status", "Pre-Migration Status", "Post-Release Status", "Files Created/Modified", "Test Results" |
+| **completed** | `Completed Today` | "Completed This Morning" |
+| **briefing** | `Things to Know` | "What Happened", "What Changed", "Big Things", "Carried From/Items/Forward", "Carry Forward", "Mid-day Sync", "Morning Sync", "From Slack Sync", "State Catch-Up", "Day Summary", "End of Day Summary", "Bugs (Open)", "QA Findings/Results", "CRITICAL:", "Context", "What to Watch", "Future Work", "Post-Release Issues", "Feature Requests (Carryover)", "Release Process Sync" |
+| **other** | (any unrecognized H2) | Renders as plain markdown in the lower-row "Other" collapsible. |
 
-Sections of kind `other` render as plain markdown — nothing is hidden, just not specially typed. New section types you invent will fall through gracefully and still display.
+If you write a plan with section names not in this table, those sections still display — they just live in the catch-all "Other" collapsible at the bottom. They are never hidden or dropped.
 
 ### H3 buckets inside Priority Tasks
 
@@ -92,6 +107,20 @@ Recommendation: **A** with --force-with-lease.
 The cockpit renders the question (the H3 text), the option bodies, the recommendation, and a button per option. Clicking a button records the choice.
 
 If the H3 already contains a `**Decided:** Option A — <date>` line, the cockpit shows it in decided state and disables the option buttons.
+
+### Synthetic asks (H2 with no H3)
+
+A decisions-classified H2 with prose body and no H3 children is treated as a single "ask" card. Example:
+
+```markdown
+## Open ask for Rajiv
+
+**Group DM IDs needed** for Jason+Kat — multi-party DMs that the Slack search
+API can't auto-discover. Open each in Slack web UI, copy the channel ID, share,
+and I'll add to slack-sync.yaml.
+```
+
+This surfaces in the NEEDS YOU region as one card with the prose body verbatim. No option buttons (there are no options to choose); the ask is for human action. Resolve it by editing the file (e.g., add a `**Resolved:** ...` line) or the next sync.
 
 ### Tasks
 
