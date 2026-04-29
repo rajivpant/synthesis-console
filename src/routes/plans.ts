@@ -3,13 +3,15 @@ import { existsSync, readdirSync, readFileSync, writeFileSync, renameSync } from
 import { join } from "path";
 import type { ConsoleConfig, Source } from "../config.js";
 import { getPlansPath, findSource, getSlackToken } from "../config.js";
-import { readAndRenderPlanMarkdown } from "../parsers/markdown.js";
+import { readAndRenderPlanMarkdown, readAndRenderPlanForCockpit } from "../parsers/markdown.js";
 import { replaceDraftBody, findDraftBlocks, markDraftAsSent } from "../parsers/draft-blocks.js";
+import { recordDecision, markTaskDone, unmarkTaskDone } from "../parsers/plan-mutations.js";
 import { loadSlackDirectory } from "../parsers/slack-directory.js";
 import { resolveMentions, listResolvedMentions } from "../parsers/slack-mentions.js";
 import { postSlackMessage } from "../integrations/slack-send.js";
 import { layout } from "../views/layout.js";
 import { planListView, planDetailView } from "../views/plan.js";
+import { planCockpitView } from "../views/plan-cockpit.js";
 import type { PlanEntry } from "../views/plan.js";
 import { escapeHtml, sanitizePathSegment } from "../utils.js";
 import { activeSources } from "../active-sources.js";
@@ -87,15 +89,16 @@ export function planRoutes(config: ConsoleConfig) {
     const filePath = join(plansDir, `${date}.md`);
     const directory = loadSlackDirectory(src);
     const slackEnabled = !src.demo && !!getSlackToken(src);
-    const contentHtml = readAndRenderPlanMarkdown(filePath, {
+    const slackCfg = src.slack
+      ? { workspace_url: src.slack.workspace_url, team_id: src.slack.team_id }
+      : undefined;
+    const cockpitBundle = readAndRenderPlanForCockpit(filePath, {
       editable: !src.demo,
       slackEnabled,
       directory,
-      slack: src.slack
-        ? { workspace_url: src.slack.workspace_url, team_id: src.slack.team_id }
-        : undefined,
+      slack: slackCfg,
     });
-    if (!contentHtml) {
+    if (!cockpitBundle) {
       return notFound(c, config, active, `No plan for ${escapeHtml(date)} in ${escapeHtml(sourceName)}.`);
     }
 
@@ -105,13 +108,32 @@ export function planRoutes(config: ConsoleConfig) {
     const prevDate = currentIdx > 0 ? sortedAsc[currentIdx - 1].date : undefined;
     const nextDate = currentIdx < sortedAsc.length - 1 ? sortedAsc[currentIdx + 1].date : undefined;
 
-    const content = planDetailView({
-      date,
-      contentHtml,
-      sourceName: src.name,
-      prevDate,
-      nextDate,
-    });
+    // If the parser detected NO recognized sections (only header + others),
+    // fall back to the legacy plain-markdown view so unrecognized formats
+    // still render.
+    const hasRecognized = cockpitBundle.sections.some(
+      (s) => s.kind !== "header" && s.kind !== "other"
+    );
+    const content = hasRecognized
+      ? planCockpitView({
+          date,
+          sourceName: src.name,
+          sections: cockpitBundle.sections,
+          draftsHtml: cockpitBundle.draftsHtml,
+          fullMarkdownHtml: cockpitBundle.fullHtml,
+          directoryIslandHtml: cockpitBundle.directoryIslandHtml,
+          prevDate,
+          nextDate,
+          fileMtimeMs: cockpitBundle.mtimeMs,
+          editable: !src.demo,
+        })
+      : planDetailView({
+          date,
+          contentHtml: cockpitBundle.fullHtml + (cockpitBundle.directoryIslandHtml || ""),
+          sourceName: src.name,
+          prevDate,
+          nextDate,
+        });
 
     return c.html(
       layout({
@@ -363,7 +385,251 @@ export function planRoutes(config: ConsoleConfig) {
     });
   });
 
+  // ---- Cockpit write-back: decisions and tasks ----
+  // Both routes follow the same discipline as the draft PUT/POST routes:
+  //   - demo source → 403
+  //   - bad index / source / file → 400 / 404
+  //   - compare-and-swap mismatch → 409 with "reload and retry"
+  //   - atomic-ish write via temp file + rename
+
+  app.post("/plans/:source/:date/decision/:index", async (c) => {
+    const { src, filePath, error } = resolveWriteTarget(c, config);
+    if (error) return error;
+    const idx = parseIndexParam(c.req.param("index"));
+    if (idx === null) return c.json({ ok: false, error: "Invalid decision index." }, 400);
+
+    let body: { option?: unknown; decidedAtIso?: unknown };
+    try {
+      body = (await c.req.json()) as typeof body;
+    } catch {
+      return c.json({ ok: false, error: "Invalid JSON body." }, 400);
+    }
+    const option = typeof body.option === "string" ? body.option.trim().toUpperCase() : "";
+    const decidedAtIso =
+      typeof body.decidedAtIso === "string" && body.decidedAtIso
+        ? body.decidedAtIso
+        : new Date().toISOString();
+    if (!option) {
+      return c.json({ ok: false, error: "option is required." }, 400);
+    }
+
+    let raw: string;
+    try {
+      raw = readFileSync(filePath, "utf-8");
+    } catch {
+      return c.json({ ok: false, error: "Could not read plan file." }, 500);
+    }
+
+    const result = recordDecision(raw, idx, option, decidedAtIso);
+    if (!result.ok) {
+      const status =
+        result.reason === "already-decided"
+          ? 409
+          : result.reason === "not-found"
+            ? 404
+            : 400;
+      const message = mutationFailureMessage(result.reason, result.message);
+      return c.json({ ok: false, error: message }, status);
+    }
+
+    if (!writeAtomic(filePath, result.newRaw)) {
+      return c.json({ ok: false, error: "Could not write plan file." }, 500);
+    }
+
+    return c.json({ ok: true, decidedAtIso });
+  });
+
+  app.post("/plans/:source/:date/task/:index/done", async (c) => {
+    const { src, filePath, error } = resolveWriteTarget(c, config);
+    if (error) return error;
+    const idx = parseIndexParam(c.req.param("index"));
+    if (idx === null) return c.json({ ok: false, error: "Invalid task index." }, 400);
+
+    let body: { originalText?: unknown; doneAtLocal?: unknown };
+    try {
+      body = (await c.req.json()) as typeof body;
+    } catch {
+      return c.json({ ok: false, error: "Invalid JSON body." }, 400);
+    }
+    const originalText = typeof body.originalText === "string" ? body.originalText : "";
+    const doneAtLocal =
+      typeof body.doneAtLocal === "string" && body.doneAtLocal
+        ? body.doneAtLocal
+        : formatLocalTime(new Date());
+    if (!originalText) {
+      return c.json({ ok: false, error: "originalText is required." }, 400);
+    }
+
+    let raw: string;
+    try {
+      raw = readFileSync(filePath, "utf-8");
+    } catch {
+      return c.json({ ok: false, error: "Could not read plan file." }, 500);
+    }
+
+    const result = markTaskDone(raw, idx, originalText, doneAtLocal);
+    if (!result.ok) {
+      const status =
+        result.reason === "conflict"
+          ? 409
+          : result.reason === "already-done"
+            ? 409
+            : result.reason === "not-found"
+              ? 404
+              : 400;
+      const message = mutationFailureMessage(result.reason, result.message);
+      return c.json({ ok: false, error: message }, status);
+    }
+
+    if (!writeAtomic(filePath, result.newRaw)) {
+      return c.json({ ok: false, error: "Could not write plan file." }, 500);
+    }
+
+    return c.json({ ok: true, doneAtLocal });
+  });
+
+  app.post("/plans/:source/:date/task/:index/undone", async (c) => {
+    const { src, filePath, error } = resolveWriteTarget(c, config);
+    if (error) return error;
+    const idx = parseIndexParam(c.req.param("index"));
+    if (idx === null) return c.json({ ok: false, error: "Invalid task index." }, 400);
+
+    let body: { originalText?: unknown };
+    try {
+      body = (await c.req.json()) as typeof body;
+    } catch {
+      return c.json({ ok: false, error: "Invalid JSON body." }, 400);
+    }
+    const originalText = typeof body.originalText === "string" ? body.originalText : "";
+    if (!originalText) {
+      return c.json({ ok: false, error: "originalText is required." }, 400);
+    }
+
+    let raw: string;
+    try {
+      raw = readFileSync(filePath, "utf-8");
+    } catch {
+      return c.json({ ok: false, error: "Could not read plan file." }, 500);
+    }
+
+    const result = unmarkTaskDone(raw, idx, originalText);
+    if (!result.ok) {
+      const status =
+        result.reason === "conflict"
+          ? 409
+          : result.reason === "not-done"
+            ? 409
+            : result.reason === "not-found"
+              ? 404
+              : 400;
+      const message = mutationFailureMessage(result.reason, result.message);
+      return c.json({ ok: false, error: message }, status);
+    }
+
+    if (!writeAtomic(filePath, result.newRaw)) {
+      return c.json({ ok: false, error: "Could not write plan file." }, 500);
+    }
+
+    return c.json({ ok: true });
+  });
+
   return app;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Cockpit-route helpers                                                      */
+/* -------------------------------------------------------------------------- */
+
+function resolveWriteTarget(
+  c: import("hono").Context,
+  config: ConsoleConfig
+): { src?: Source; filePath: string; error?: ReturnType<import("hono").Context["json"]> } {
+  const sourceName = sanitizePathSegment(c.req.param("source"));
+  const date = sanitizePathSegment(c.req.param("date"));
+  if (!sourceName || !date) {
+    return { filePath: "", error: c.json({ ok: false, error: "Invalid request path." }, 400) };
+  }
+  const src = findSource(config.sources, sourceName);
+  if (!src) {
+    return { filePath: "", error: c.json({ ok: false, error: "Source not found." }, 404) };
+  }
+  if (src.demo) {
+    return {
+      src,
+      filePath: "",
+      error: c.json({ ok: false, error: "Demo data is read-only." }, 403),
+    };
+  }
+  const plansDir = getPlansPath(src);
+  if (!plansDir) {
+    return {
+      src,
+      filePath: "",
+      error: c.json({ ok: false, error: "Source has no plans directory." }, 404),
+    };
+  }
+  const filePath = join(plansDir, `${date}.md`);
+  if (!existsSync(filePath)) {
+    return {
+      src,
+      filePath,
+      error: c.json({ ok: false, error: "Plan file not found." }, 404),
+    };
+  }
+  return { src, filePath };
+}
+
+function parseIndexParam(raw: string | undefined): number | null {
+  const seg = sanitizePathSegment(raw || "");
+  if (!seg) return null;
+  const n = Number(seg);
+  if (!Number.isInteger(n) || n < 0 || n > 9999) return null;
+  return n;
+}
+
+function writeAtomic(filePath: string, content: string): boolean {
+  const tempPath = `${filePath}.tmp-${process.pid}-${Date.now()}`;
+  try {
+    writeFileSync(tempPath, content, "utf-8");
+    renameSync(tempPath, filePath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function mutationFailureMessage(reason: string, message?: string): string {
+  if (message) return message;
+  switch (reason) {
+    case "conflict":
+      return "The file changed since this page was loaded. Reload the page and try again.";
+    case "already-decided":
+      return "This decision has already been recorded.";
+    case "already-done":
+      return "This task is already marked done.";
+    case "not-done":
+      return "This task isn't currently marked done.";
+    case "not-found":
+      return "Item not found.";
+    case "invalid-option":
+      return "Invalid option.";
+    default:
+      return "Unable to apply the change.";
+  }
+}
+
+function formatLocalTime(d: Date): string {
+  // "11:14 EDT" — use short timezone if available, fall back to offset.
+  const opts: Intl.DateTimeFormatOptions = {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+    timeZoneName: "short",
+  };
+  // 24-hour with leading zeroes; remove "GMT-04:00" forms in favor of "EDT" if present.
+  const formatted = new Intl.DateTimeFormat("en-US", opts).format(d);
+  // Returns "13:14 EDT" or "13:14 GMT-4". Normalize "GMT-4" → keep as is.
+  return formatted.replace(/^24:/, "00:");
 }
 
 import type { SlackDirectory } from "../parsers/slack-directory.js";

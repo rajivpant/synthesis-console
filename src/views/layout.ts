@@ -650,6 +650,275 @@ function layoutScript(): string {
           exitEditMode(actions);
         }
       });
+
+      // ===== Cockpit handlers (decision pick, task check, filter, find) =====
+
+      function cockpitView() {
+        return document.querySelector('.cockpit-view');
+      }
+
+      function cockpitBase() {
+        var v = cockpitView();
+        if (!v) return null;
+        return { source: v.dataset.source, date: v.dataset.date, editable: v.dataset.editable === 'true' };
+      }
+
+      function setCockpitStatus(el, msg, isError) {
+        if (!el) return;
+        el.textContent = msg || '';
+        el.classList.toggle('cockpit-decision-status-error', !!isError);
+        el.classList.toggle('cockpit-task-status-error', !!isError);
+      }
+
+      function handleDecisionPick(button) {
+        var card = button.closest('.cockpit-decision');
+        if (!card || card.dataset.decided === 'true') return;
+        var base = cockpitBase();
+        if (!base || !base.editable) return;
+        var idx = card.dataset.decisionIndex;
+        var option = button.dataset.option;
+        var statusEl = card.querySelector('.cockpit-decision-status');
+        setCockpitStatus(statusEl, 'Recording…', false);
+
+        // Disable all option buttons in this card during the request.
+        var opts = card.querySelectorAll('.cockpit-decision-option');
+        opts.forEach(function (b) { b.disabled = true; });
+
+        var url = '/plans/' + encodeURIComponent(base.source) +
+                  '/' + encodeURIComponent(base.date) +
+                  '/decision/' + encodeURIComponent(idx);
+        fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ option: option, decidedAtIso: new Date().toISOString().replace('T', ' ').replace(/\\.\\d+Z$/, ' UTC') })
+        }).then(function (res) {
+          return res.json().then(function (json) { return { ok: res.ok, body: json }; });
+        }).then(function (r) {
+          if (r.ok && r.body && r.body.ok) {
+            window.location.reload();
+            return;
+          }
+          var msg = (r.body && r.body.error) ? r.body.error : 'Could not record decision.';
+          setCockpitStatus(statusEl, msg, true);
+          opts.forEach(function (b) { b.disabled = false; });
+        }).catch(function (err) {
+          setCockpitStatus(statusEl, 'Network error: ' + (err && err.message ? err.message : 'unknown'), true);
+          opts.forEach(function (b) { b.disabled = false; });
+        });
+      }
+
+      function formatLocalCockpitTime(d) {
+        // "11:14 EDT" — matches the existing in-plan convention.
+        try {
+          var s = new Intl.DateTimeFormat('en-US', { hour: '2-digit', minute: '2-digit', hour12: false, timeZoneName: 'short' }).format(d);
+          return s.replace(/^24:/, '00:');
+        } catch (_) {
+          var hh = String(d.getHours()).padStart(2, '0');
+          var mm = String(d.getMinutes()).padStart(2, '0');
+          return hh + ':' + mm;
+        }
+      }
+
+      function handleTaskToggle(checkbox) {
+        var task = checkbox.closest('.cockpit-task');
+        if (!task) return;
+        var base = cockpitBase();
+        if (!base || !base.editable) {
+          checkbox.checked = !checkbox.checked; // revert
+          return;
+        }
+        var idx = task.dataset.taskIndex;
+        var originalText = task.dataset.originalText || '';
+        var statusEl = task.querySelector('.cockpit-task-status');
+        var willBeDone = checkbox.checked;
+
+        checkbox.disabled = true;
+        setCockpitStatus(statusEl, willBeDone ? 'Marking done…' : 'Reopening…', false);
+
+        var url = '/plans/' + encodeURIComponent(base.source) +
+                  '/' + encodeURIComponent(base.date) +
+                  '/task/' + encodeURIComponent(idx) +
+                  '/' + (willBeDone ? 'done' : 'undone');
+
+        var payload = { originalText: originalText };
+        if (willBeDone) {
+          payload.doneAtLocal = formatLocalCockpitTime(new Date());
+        }
+
+        fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        }).then(function (res) {
+          return res.json().then(function (json) { return { ok: res.ok, body: json }; });
+        }).then(function (r) {
+          if (r.ok && r.body && r.body.ok) {
+            window.location.reload();
+            return;
+          }
+          var msg = (r.body && r.body.error) ? r.body.error : 'Could not update task.';
+          setCockpitStatus(statusEl, msg, true);
+          // Revert the checkbox state.
+          checkbox.checked = !willBeDone;
+          checkbox.disabled = false;
+        }).catch(function (err) {
+          setCockpitStatus(statusEl, 'Network error: ' + (err && err.message ? err.message : 'unknown'), true);
+          checkbox.checked = !willBeDone;
+          checkbox.disabled = false;
+        });
+      }
+
+      function applyCockpitFilter(filter) {
+        var view = cockpitView();
+        if (!view) return;
+        var chips = view.querySelectorAll('.cockpit-filter-chip');
+        chips.forEach(function (c) {
+          c.classList.toggle('cockpit-filter-active', c.dataset.filter === filter);
+        });
+        if (filter === 'find') {
+          openCockpitFind();
+          // Don't change focus state; find is overlaid.
+          return;
+        }
+        document.body.dataset.cockpitFocus = filter === 'focus' ? 'true' : 'false';
+        if (filter !== 'find') {
+          closeCockpitFind();
+        }
+      }
+
+      function findBar() {
+        var view = cockpitView();
+        return view ? view.querySelector('.cockpit-find-bar') : null;
+      }
+
+      function openCockpitFind() {
+        var bar = findBar();
+        if (!bar) return;
+        bar.hidden = false;
+        var input = bar.querySelector('.cockpit-find-input');
+        if (input) { input.focus(); input.select(); }
+      }
+
+      function closeCockpitFind() {
+        var bar = findBar();
+        if (!bar) return;
+        bar.hidden = true;
+        clearFindHighlights();
+        // Restore the previously-active chip — Focus or All.
+        var view = cockpitView();
+        if (view && document.body.dataset.cockpitFocus === 'true') {
+          applyCockpitFilter('focus');
+        } else {
+          applyCockpitFilter('all');
+        }
+      }
+
+      function clearFindHighlights() {
+        var view = cockpitView();
+        if (!view) return;
+        view.querySelectorAll('.cockpit-find-match').forEach(function (el) {
+          el.classList.remove('cockpit-find-match');
+        });
+      }
+
+      function runCockpitFind(query) {
+        clearFindHighlights();
+        var view = cockpitView();
+        if (!view || !query) return { hits: 0 };
+        var q = query.toLowerCase();
+        var hits = 0;
+        var firstHit = null;
+
+        // Walk text-bearing leaf elements.
+        var candidates = view.querySelectorAll('.cockpit-task-body, .cockpit-decision-question, .cockpit-decision-body, .cockpit-collapsible-body p, .cockpit-collapsible-body li, .cockpit-collapsible-body h3, .cockpit-collapsible-body h4');
+        candidates.forEach(function (el) {
+          var t = (el.textContent || '').toLowerCase();
+          if (t.indexOf(q) !== -1) {
+            el.classList.add('cockpit-find-match');
+            hits++;
+            if (!firstHit) firstHit = el;
+            // Open ancestor <details>.
+            var p = el.parentElement;
+            while (p && p !== view) {
+              if (p.tagName === 'DETAILS') p.open = true;
+              p = p.parentElement;
+            }
+          }
+        });
+
+        if (firstHit) {
+          firstHit.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+        return { hits: hits };
+      }
+
+      // Delegated click for cockpit interactions.
+      document.addEventListener('click', function (e) {
+        var t = e.target;
+        if (!t || !t.closest) return;
+
+        var optBtn = t.closest('.cockpit-decision-option');
+        if (optBtn && !optBtn.disabled) {
+          e.preventDefault();
+          handleDecisionPick(optBtn);
+          return;
+        }
+
+        var chip = t.closest('.cockpit-filter-chip');
+        if (chip) {
+          e.preventDefault();
+          applyCockpitFilter(chip.dataset.filter);
+          return;
+        }
+
+        var findClose = t.closest('.cockpit-find-close');
+        if (findClose) {
+          e.preventDefault();
+          closeCockpitFind();
+          return;
+        }
+      });
+
+      // Delegated change for task checkboxes (so we capture the user's intent
+      // before the browser persists the new state, in case we need to revert).
+      document.addEventListener('change', function (e) {
+        var cb = e.target;
+        if (!cb || !cb.classList || !cb.classList.contains('cockpit-task-check')) return;
+        handleTaskToggle(cb);
+      });
+
+      // Find input: live filter on input.
+      document.addEventListener('input', function (e) {
+        var input = e.target;
+        if (!input || !input.classList || !input.classList.contains('cockpit-find-input')) return;
+        var bar = input.closest('.cockpit-find-bar');
+        var status = bar ? bar.querySelector('.cockpit-find-status') : null;
+        var result = runCockpitFind(input.value);
+        if (status) status.textContent = input.value ? (result.hits + ' match' + (result.hits === 1 ? '' : 'es')) : '';
+      });
+
+      // Escape closes the find bar; Cmd/Ctrl+F opens it (without preventing
+      // browser-native find from also working — we just mirror it).
+      document.addEventListener('keydown', function (e) {
+        if (!cockpitView()) return;
+        if ((e.metaKey || e.ctrlKey) && (e.key === 'f' || e.key === 'F')) {
+          // Open the cockpit find bar but DO NOT preventDefault — let the
+          // browser's native find run too. The cockpit's find-and-expand
+          // covers collapsed sections that the browser won't reach.
+          var bar = findBar();
+          if (bar && bar.hidden) {
+            // Don't auto-focus the input (would steal from browser find);
+            // just unhide so the user can click it.
+            bar.hidden = false;
+          }
+        }
+        if (e.key === 'Escape') {
+          var bar2 = findBar();
+          if (bar2 && !bar2.hidden) {
+            closeCockpitFind();
+          }
+        }
+      });
     })();
   `;
 }

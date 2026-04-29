@@ -1045,3 +1045,664 @@ footer {
   border-top: 1px solid #e5e7eb;
   color: #9ca3af;
 }
+
+/* === Cockpit View ========================================================
+ * Daily plan cockpit (v0.8+). Restrained, semantic palette implemented as
+ * CSS custom properties scoped to .cockpit-view so the rest of the console
+ * is unaffected. Dark mode can drop in later by overriding these tokens.
+ * ====================================================================== */
+
+.cockpit-view {
+  --cockpit-critical: #c14a30;
+  --cockpit-critical-soft: #fbeae3;
+  --cockpit-action: #b58a00;
+  --cockpit-action-soft: #fbf5e0;
+  --cockpit-done: #3a6b54;
+  --cockpit-done-soft: #e6efe9;
+  --cockpit-context: #5b6779;
+  --cockpit-context-soft: #eef0f3;
+  --cockpit-waiting: #7a6c91;
+  --cockpit-waiting-soft: #f0eaf3;
+  --cockpit-surface: #fdfcf7;
+  --cockpit-surface-elev: #ffffff;
+  --cockpit-border: #e8e4d8;
+  --cockpit-border-soft: #f0ede4;
+  --cockpit-muted: #8b8579;
+  --cockpit-text: #2c2a26;
+  --cockpit-text-soft: #5c574e;
+
+  font-feature-settings: "ss01" on, "tnum" on;
+}
+
+.cockpit-breadcrumb {
+  margin-bottom: 0.6em;
+}
+
+.cockpit-breadcrumb ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4em;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font-size: 0.92em;
+  color: var(--cockpit-text-soft);
+}
+
+.cockpit-breadcrumb li::after {
+  content: "›";
+  margin-left: 0.4em;
+  color: var(--cockpit-muted);
+}
+
+.cockpit-breadcrumb li:last-child::after {
+  content: "";
+}
+
+/* ---- Glance bar ---- */
+.cockpit-glance {
+  background: var(--cockpit-surface);
+  border: 1px solid var(--cockpit-border);
+  border-radius: 8px;
+  padding: 0.9em 1em;
+  margin-bottom: 1.2em;
+  display: grid;
+  grid-template-columns: minmax(200px, 1fr) auto auto;
+  grid-template-areas:
+    "title counts tools"
+    "find  find   find";
+  align-items: center;
+  gap: 0.6em 1.2em;
+}
+
+.cockpit-glance-title {
+  grid-area: title;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15em;
+}
+
+.cockpit-glance-title strong {
+  font-size: 1.1em;
+  color: var(--cockpit-text);
+}
+
+.cockpit-glance-age {
+  font-size: 0.82em;
+  color: var(--cockpit-muted);
+}
+
+.cockpit-glance-counts {
+  grid-area: counts;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5em 1em;
+}
+
+.cockpit-count {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  line-height: 1.1;
+  min-width: 64px;
+}
+
+.cockpit-count-num {
+  font-size: 1.35em;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+
+.cockpit-count-label {
+  font-size: 0.74em;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--cockpit-muted);
+}
+
+.cockpit-count-critical .cockpit-count-num { color: var(--cockpit-critical); }
+.cockpit-count-action   .cockpit-count-num { color: var(--cockpit-action); }
+.cockpit-count-done     .cockpit-count-num { color: var(--cockpit-done); }
+.cockpit-count-context  .cockpit-count-num { color: var(--cockpit-context); }
+.cockpit-count-waiting  .cockpit-count-num { color: var(--cockpit-waiting); }
+
+.cockpit-glance-tools {
+  grid-area: tools;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4em;
+  align-items: flex-end;
+}
+
+.cockpit-filter-chips {
+  display: inline-flex;
+  gap: 0.3em;
+  background: var(--cockpit-surface-elev);
+  border: 1px solid var(--cockpit-border);
+  border-radius: 999px;
+  padding: 0.2em;
+}
+
+.cockpit-filter-chip {
+  appearance: none;
+  background: transparent;
+  border: none;
+  border-radius: 999px;
+  padding: 0.25em 0.8em;
+  font-size: 0.85em;
+  color: var(--cockpit-text-soft);
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+
+.cockpit-filter-chip:hover {
+  background: var(--cockpit-context-soft);
+  color: var(--cockpit-text);
+}
+
+.cockpit-filter-chip.cockpit-filter-active {
+  background: var(--cockpit-context);
+  color: #fff;
+}
+
+.cockpit-nav {
+  display: inline-flex;
+  gap: 0.6em;
+  font-size: 0.88em;
+}
+
+.cockpit-find-bar {
+  grid-area: find;
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+  margin-top: 0.4em;
+  padding-top: 0.6em;
+  border-top: 1px solid var(--cockpit-border-soft);
+}
+
+.cockpit-find-bar[hidden] { display: none; }
+
+.cockpit-find-input {
+  flex: 1;
+  margin: 0;
+  padding: 0.4em 0.7em;
+  border: 1px solid var(--cockpit-border);
+  border-radius: 4px;
+  font-size: 0.95em;
+  background: var(--cockpit-surface-elev);
+  color: var(--cockpit-text);
+}
+
+.cockpit-find-input:focus {
+  outline: 2px solid var(--cockpit-action);
+  outline-offset: -1px;
+  border-color: var(--cockpit-action);
+}
+
+.cockpit-find-status {
+  font-size: 0.82em;
+  color: var(--cockpit-muted);
+  white-space: nowrap;
+}
+
+.cockpit-find-close {
+  appearance: none;
+  background: transparent;
+  border: none;
+  font-size: 1.4em;
+  line-height: 1;
+  padding: 0 0.4em;
+  cursor: pointer;
+  color: var(--cockpit-muted);
+}
+
+.cockpit-find-close:hover { color: var(--cockpit-text); }
+
+/* ---- Header pre-H2 markdown ---- */
+.cockpit-header {
+  margin-bottom: 1.2em;
+  font-size: 0.95em;
+  color: var(--cockpit-text-soft);
+}
+
+.cockpit-header :first-child { margin-top: 0; }
+
+/* ---- Region scaffolding ---- */
+.cockpit-region {
+  margin: 1.4em 0;
+  padding: 1em 1.1em;
+  background: var(--cockpit-surface);
+  border: 1px solid var(--cockpit-border);
+  border-left: 4px solid var(--cockpit-context);
+  border-radius: 6px;
+}
+
+.cockpit-region-title {
+  margin: 0 0 0.6em 0;
+  font-size: 0.78em;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-weight: 700;
+  color: var(--cockpit-text-soft);
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5em;
+}
+
+.cockpit-region-count {
+  font-size: 0.85em;
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 500;
+  color: var(--cockpit-muted);
+}
+
+.cockpit-region-empty .cockpit-region-empty-msg {
+  margin: 0.2em 0 0;
+  color: var(--cockpit-muted);
+  font-style: italic;
+  font-size: 0.92em;
+}
+
+.cockpit-region-needs   { border-left-color: var(--cockpit-critical); }
+.cockpit-region-today   { border-left-color: var(--cockpit-action); }
+.cockpit-region-drafts  { border-left-color: var(--cockpit-action); }
+.cockpit-region-collapsibles {
+  border-left-color: var(--cockpit-context);
+  background: transparent;
+  padding: 0;
+}
+
+.cockpit-region-needs .cockpit-region-title { color: var(--cockpit-critical); }
+.cockpit-region-today .cockpit-region-title { color: var(--cockpit-action); }
+.cockpit-region-drafts .cockpit-region-title { color: var(--cockpit-action); }
+
+.cockpit-region-subheading {
+  margin: 0.6em 0 0.4em;
+  font-size: 0.95em;
+  font-weight: 600;
+  color: var(--cockpit-text);
+}
+
+/* ---- Decision card ---- */
+.cockpit-card {
+  background: var(--cockpit-surface-elev);
+  border: 1px solid var(--cockpit-border);
+  border-radius: 6px;
+  padding: 0.85em 1em;
+  margin: 0.5em 0;
+}
+
+.cockpit-decision[data-decided="true"] {
+  background: var(--cockpit-done-soft);
+  border-color: rgba(58, 107, 84, 0.25);
+}
+
+.cockpit-decision-question {
+  margin: 0 0 0.5em;
+  font-size: 1.02em;
+  color: var(--cockpit-text);
+  line-height: 1.35;
+}
+
+.cockpit-decision-decided-note {
+  margin: 0 0 0.6em;
+  padding: 0.35em 0.7em;
+  background: var(--cockpit-done);
+  color: #fff;
+  border-radius: 4px;
+  font-size: 0.88em;
+  display: inline-block;
+}
+
+.cockpit-decision-options {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 0.5em;
+  margin-bottom: 0.6em;
+}
+
+.cockpit-decision-option {
+  position: relative;
+  appearance: none;
+  text-align: left;
+  background: var(--cockpit-surface);
+  border: 1px solid var(--cockpit-border);
+  border-radius: 5px;
+  padding: 0.55em 0.7em;
+  font: inherit;
+  color: var(--cockpit-text);
+  cursor: pointer;
+  display: flex;
+  gap: 0.55em;
+  align-items: flex-start;
+  line-height: 1.35;
+  transition: background 0.12s, border-color 0.12s, transform 0.05s;
+}
+
+.cockpit-decision-option:not(:disabled):hover {
+  background: var(--cockpit-critical-soft);
+  border-color: var(--cockpit-critical);
+}
+
+.cockpit-decision-option:not(:disabled):active {
+  transform: translateY(1px);
+}
+
+.cockpit-decision-option:disabled {
+  cursor: not-allowed;
+  opacity: 0.85;
+}
+
+.cockpit-decision-letter {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.6em;
+  height: 1.6em;
+  border-radius: 999px;
+  background: var(--cockpit-critical-soft);
+  color: var(--cockpit-critical);
+  font-weight: 700;
+  font-size: 0.85em;
+}
+
+.cockpit-decision-body {
+  flex: 1 1 auto;
+  font-size: 0.94em;
+}
+
+.cockpit-decision-body :first-child { margin-top: 0; }
+.cockpit-decision-body :last-child  { margin-bottom: 0; }
+
+.cockpit-decision-rec-badge {
+  flex: 0 0 auto;
+  margin-left: auto;
+  font-size: 0.72em;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--cockpit-action);
+  font-weight: 600;
+  white-space: nowrap;
+  align-self: flex-start;
+}
+
+.cockpit-decision-chosen {
+  background: var(--cockpit-done);
+  border-color: var(--cockpit-done);
+  color: #fff;
+}
+
+.cockpit-decision-chosen .cockpit-decision-letter {
+  background: rgba(255, 255, 255, 0.18);
+  color: #fff;
+}
+
+.cockpit-decision-unchosen {
+  opacity: 0.5;
+}
+
+.cockpit-decision-rec {
+  margin: 0.2em 0 0;
+  font-size: 0.88em;
+  color: var(--cockpit-text-soft);
+}
+
+.cockpit-decision-status {
+  min-height: 1em;
+  margin-top: 0.3em;
+  font-size: 0.85em;
+  color: var(--cockpit-text-soft);
+}
+
+.cockpit-decision-status.cockpit-decision-status-error {
+  color: var(--cockpit-critical);
+}
+
+/* ---- Task buckets ---- */
+.cockpit-bucket {
+  background: var(--cockpit-surface-elev);
+  border: 1px solid var(--cockpit-border);
+  border-radius: 5px;
+  margin: 0.4em 0;
+  border-left-width: 3px;
+}
+
+.cockpit-bucket-critical { border-left-color: var(--cockpit-critical); }
+.cockpit-bucket-action   { border-left-color: var(--cockpit-action); }
+.cockpit-bucket-context  { border-left-color: var(--cockpit-context); }
+.cockpit-bucket-waiting  { border-left-color: var(--cockpit-waiting); }
+
+.cockpit-bucket-summary {
+  list-style: none;
+  cursor: pointer;
+  padding: 0.5em 0.8em;
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.6em;
+  font-size: 0.95em;
+  color: var(--cockpit-text);
+}
+
+.cockpit-bucket-summary::-webkit-details-marker { display: none; }
+
+.cockpit-bucket-summary::before {
+  content: "▸";
+  color: var(--cockpit-muted);
+  font-size: 0.85em;
+  display: inline-block;
+  width: 0.9em;
+  transition: transform 0.15s;
+}
+
+.cockpit-bucket[open] > .cockpit-bucket-summary::before {
+  transform: rotate(90deg);
+}
+
+.cockpit-bucket-label {
+  flex: 1;
+  font-weight: 500;
+}
+
+.cockpit-bucket-count {
+  font-size: 0.82em;
+  font-variant-numeric: tabular-nums;
+  color: var(--cockpit-muted);
+}
+
+.cockpit-task-list {
+  list-style: none;
+  margin: 0;
+  padding: 0.2em 0.8em 0.6em 1.4em;
+}
+
+.cockpit-task {
+  margin: 0.25em 0;
+  padding: 0.3em 0;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0.15em;
+  border-bottom: 1px solid var(--cockpit-border-soft);
+}
+
+.cockpit-task:last-child { border-bottom: none; }
+
+.cockpit-task-label {
+  display: flex;
+  gap: 0.55em;
+  align-items: flex-start;
+  cursor: pointer;
+  line-height: 1.4;
+}
+
+.cockpit-task[data-readonly="true"] .cockpit-task-label {
+  cursor: default;
+}
+
+.cockpit-task-check {
+  flex: 0 0 auto;
+  margin: 0.25em 0 0 0;
+  width: 1.05em;
+  height: 1.05em;
+  accent-color: var(--cockpit-done);
+  cursor: pointer;
+}
+
+.cockpit-task[data-readonly="true"] .cockpit-task-check {
+  cursor: not-allowed;
+}
+
+.cockpit-task-body {
+  flex: 1;
+  font-size: 0.95em;
+  color: var(--cockpit-text);
+}
+
+.cockpit-task-body :first-child { margin-top: 0; }
+.cockpit-task-body :last-child  { margin-bottom: 0; }
+
+.cockpit-task-done .cockpit-task-body {
+  color: var(--cockpit-muted);
+}
+
+.cockpit-task-done-badge {
+  flex: 0 0 auto;
+  margin-left: auto;
+  font-size: 0.72em;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--cockpit-done);
+  font-weight: 600;
+  white-space: nowrap;
+  align-self: flex-start;
+}
+
+.cockpit-task-status {
+  font-size: 0.82em;
+  color: var(--cockpit-text-soft);
+  padding-left: 1.6em;
+  min-height: 0;
+}
+
+.cockpit-task-status.cockpit-task-status-error {
+  color: var(--cockpit-critical);
+  min-height: 1em;
+}
+
+/* ---- Drafts region passthrough ---- */
+.cockpit-drafts-body { font-size: 0.95em; }
+.cockpit-drafts-body > h2 { display: none; } /* The drafts H2 is replaced by the region title */
+
+/* ---- Lower-row collapsibles ---- */
+.cockpit-region-collapsibles {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.7em;
+}
+
+.cockpit-collapsible {
+  background: var(--cockpit-surface);
+  border: 1px solid var(--cockpit-border);
+  border-radius: 5px;
+  border-left-width: 3px;
+}
+
+.cockpit-collapsible-context { border-left-color: var(--cockpit-context); }
+.cockpit-collapsible-waiting { border-left-color: var(--cockpit-waiting); }
+.cockpit-collapsible-done    { border-left-color: var(--cockpit-done); }
+.cockpit-collapsible-fullmarkdown { border-left-color: var(--cockpit-muted); }
+
+.cockpit-collapsible-summary {
+  cursor: pointer;
+  padding: 0.55em 0.85em;
+  font-size: 0.92em;
+  color: var(--cockpit-text-soft);
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+}
+
+.cockpit-collapsible-summary::-webkit-details-marker { display: none; }
+
+.cockpit-collapsible-summary::before {
+  content: "▸";
+  color: var(--cockpit-muted);
+  font-size: 0.85em;
+  display: inline-block;
+  width: 0.9em;
+  transition: transform 0.15s;
+}
+
+.cockpit-collapsible[open] > .cockpit-collapsible-summary::before {
+  transform: rotate(90deg);
+}
+
+.cockpit-collapsible-label {
+  flex: 1;
+  font-weight: 500;
+  color: var(--cockpit-text);
+}
+
+.cockpit-collapsible-body {
+  padding: 0.4em 1em 1em;
+  font-size: 0.92em;
+  color: var(--cockpit-text-soft);
+  border-top: 1px solid var(--cockpit-border-soft);
+}
+
+.cockpit-collapsible-section { margin-bottom: 0.8em; }
+.cockpit-collapsible-section:last-child { margin-bottom: 0; }
+
+.cockpit-collapsible-subheading {
+  margin: 0.4em 0;
+  font-size: 1em;
+  color: var(--cockpit-text);
+  font-weight: 600;
+}
+
+/* ---- Focus mode: only critical regions visible ---- */
+body[data-cockpit-focus="true"] .cockpit-region-collapsibles,
+body[data-cockpit-focus="true"] .cockpit-header,
+body[data-cockpit-focus="true"] .cockpit-region-today .cockpit-bucket:not([open]),
+body[data-cockpit-focus="true"] .cockpit-region-today .cockpit-bucket:nth-of-type(n + 2) {
+  display: none;
+}
+
+body[data-cockpit-focus="true"] .cockpit-bucket:first-of-type {
+  display: block;
+}
+
+/* ---- Find-mode highlight ---- */
+.cockpit-find-match {
+  background: var(--cockpit-action-soft);
+  outline: 1px solid var(--cockpit-action);
+  border-radius: 2px;
+}
+
+/* ---- Mobile graceful degradation (not a design target; just don't break) ---- */
+@media (max-width: 768px) {
+  .cockpit-glance {
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      "title"
+      "counts"
+      "tools"
+      "find";
+  }
+
+  .cockpit-glance-tools { align-items: flex-start; }
+
+  .cockpit-region-collapsibles {
+    grid-template-columns: 1fr;
+  }
+
+  .cockpit-decision-options {
+    grid-template-columns: 1fr;
+  }
+}

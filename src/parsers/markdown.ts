@@ -1,8 +1,10 @@
-import { readFileSync, existsSync } from "fs";
+import { readFileSync, existsSync, statSync } from "fs";
 import MarkdownIt from "markdown-it";
 import { escapeAttr, escapeHtml } from "../utils.js";
 import { findDraftBlocks } from "./draft-blocks.js";
 import type { DraftBlock } from "./draft-blocks.js";
+import { findPlanSections } from "./plan-sections.js";
+import type { PlanSection } from "./plan-sections.js";
 import { renderMentionPills, resolveMentions, listResolvedMentions } from "./slack-mentions.js";
 import type { SlackDirectory } from "./slack-directory.js";
 import { emptyDirectory } from "./slack-directory.js";
@@ -177,6 +179,99 @@ export function readAndRenderPlanMarkdown(
   if (island) html = html + "\n" + island;
 
   return html;
+}
+
+/**
+ * Cockpit-aware entry point. Reads the plan file once and produces the full
+ * bundle the cockpit view needs:
+ *   - sections: typed structural decomposition for the cockpit's region rendering
+ *   - draftsHtml: HTML of just the drafts H2 section, with action bars
+ *     (the existing augmentDraftBlocks output, sliced to the drafts section)
+ *   - fullHtml: the full augmented HTML (for the "Full markdown" collapsible)
+ *   - directoryIslandHtml: the JSON island for Smart Copy on the client
+ *   - raw: the file contents for compare-and-swap fingerprinting
+ *   - mtimeMs: file modification time in ms
+ */
+export function readAndRenderPlanForCockpit(
+  filePath: string,
+  opts: {
+    editable?: boolean;
+    slackEnabled?: boolean;
+    directory?: SlackDirectory;
+    slack?: SlackWorkspaceConfig;
+  } = {}
+): {
+  raw: string;
+  mtimeMs: number;
+  sections: PlanSection[];
+  draftsHtml: string;
+  fullHtml: string;
+  directoryIslandHtml: string;
+} | null {
+  if (!existsSync(filePath)) return null;
+  const raw = readFileSync(filePath, "utf-8");
+  const stat = statSync(filePath);
+  const mtimeMs = stat.mtimeMs;
+
+  const sections = findPlanSections(raw);
+  const directory = opts.directory ?? emptyDirectory();
+
+  // Render the full file via the existing path; this is what the "Full
+  // markdown" collapsible shows. We then slice out just the drafts H2 section
+  // for the cockpit's DRAFTS region.
+  const fullHtmlWithIsland = readAndRenderPlanMarkdown(filePath, opts) || "";
+
+  // Strip the directory island from fullHtml (the cockpit appends it once at
+  // the bottom of the page; we don't want it duplicated inside Full markdown).
+  const islandRe = /<script id="slack-directory" type="application\/json">[\s\S]*?<\/script>/;
+  const islandMatch = fullHtmlWithIsland.match(islandRe);
+  const directoryIslandHtml = islandMatch ? islandMatch[0] : "";
+  const fullHtml = fullHtmlWithIsland.replace(islandRe, "").trim();
+
+  const draftsHtml = sliceDraftsHtml(fullHtml, sections);
+
+  return {
+    raw,
+    mtimeMs,
+    sections,
+    draftsHtml,
+    fullHtml,
+    directoryIslandHtml,
+  };
+}
+
+/**
+ * Slice out the HTML for the drafts H2 section from the full rendered HTML.
+ * Uses the section detector's H2 heading-line knowledge to find the right
+ * H2 element by its text content (case-insensitive match for "draft" or
+ * "unsent" prefix).
+ *
+ * Returns "" if no drafts section exists.
+ */
+function sliceDraftsHtml(fullHtml: string, sections: PlanSection[]): string {
+  const draftsSection = sections.find((s) => s.kind === "drafts");
+  if (!draftsSection) return "";
+
+  // Split the full HTML by H2 boundaries.
+  const parts = fullHtml.split(/(<h2[^>]*>[\s\S]*?<\/h2>)/);
+  // parts is [pre-H2-prose, H2#1, body#1, H2#2, body#2, ...]
+  for (let i = 1; i < parts.length; i += 2) {
+    const headingHtml = parts[i];
+    const bodyHtml = parts[i + 1] || "";
+    // Strip tags from heading to compare to raw heading text.
+    const headingText = headingHtml.replace(/<[^>]+>/g, "").trim();
+    if (looseHeadingMatch(headingText, draftsSection.rawHeading)) {
+      return headingHtml + bodyHtml;
+    }
+  }
+  return "";
+}
+
+function looseHeadingMatch(a: string, b: string): boolean {
+  // Compare on alphanumeric-only lowercase to avoid emoji and whitespace
+  // differences (markdown-it strips some chars during rendering).
+  const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
+  return norm(a) === norm(b);
 }
 
 interface SendToTarget {

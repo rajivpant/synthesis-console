@@ -1,0 +1,511 @@
+/**
+ * Plan section detector for the daily plan cockpit view.
+ *
+ * Walks markdown-it tokens from a daily plan file and produces a typed
+ * structure describing the eight section kinds the cockpit recognizes:
+ *   header / decisions / priority-tasks / drafts / briefing / standup /
+ *   sent-messages / waiting / pr-queue / sync-state / completed / other
+ *
+ * Operates on raw markdown source — independent of rendered HTML — so the
+ * results survive any rendering changes downstream and so the line numbers
+ * stay valid for compare-and-swap mutation. This mirrors the discipline of
+ * draft-blocks.ts.
+ *
+ * Heading detection is substring + case-insensitive against a known
+ * vocabulary. The first match wins. Anything not matched falls into `other`
+ * and renders as plain markdown — the cockpit never refuses to display a
+ * section just because the heading vocabulary is novel.
+ */
+import MarkdownIt from "markdown-it";
+
+export type SectionKind =
+  | "header"
+  | "decisions"
+  | "priority-tasks"
+  | "drafts"
+  | "briefing"
+  | "standup"
+  | "sent-messages"
+  | "waiting"
+  | "pr-queue"
+  | "sync-state"
+  | "completed"
+  | "other";
+
+export type TaskSemantic = "p0" | "p1" | "p2" | "watch" | "stale" | "other";
+
+export interface PlanSection {
+  kind: SectionKind;
+  /** 0-based line of the H2 heading (or -1 for the synthetic "header" pre-section). */
+  headingLine: number;
+  /** 0-based exclusive end line. */
+  endLine: number;
+  /** Original H2 text (e.g. "🚨 Decisions needed from Rajiv"). */
+  rawHeading: string;
+  /** Raw markdown body between heading line + 1 and endLine. */
+  rawBody: string;
+  /** For decisions sections. */
+  decisions?: Decision[];
+  /** For priority-tasks sections. */
+  taskBuckets?: TaskBucket[];
+}
+
+export interface DecisionOption {
+  /** Letter "A" / "B" / "C" extracted from `**Option A:**` etc. */
+  letter: string;
+  /** Inline text after the option marker. */
+  body: string;
+}
+
+export interface Decision {
+  /** Document-order index across all decisions in the file. Stable handle. */
+  index: number;
+  /** 0-based line of the H3 question heading. */
+  headingLine: number;
+  /** Inclusive end line of this decision's content (next H3 or section end). */
+  endLine: number;
+  /** H3 text (e.g. "1. Force-push origin/develop to trendhunter/develop?"). */
+  question: string;
+  options: DecisionOption[];
+  /** Recommendation letter if a `Recommendation: **A**` line is present. */
+  recommendationLetter?: string;
+  /** Inline body of the recommendation (without the bold letter marker). */
+  recommendationBody?: string;
+  /** Has a `**Decided:**` line already been written? */
+  decided: boolean;
+  decidedOption?: string;
+  decidedAt?: string;
+}
+
+export interface PlanTask {
+  /** 0-based document-order index across the whole file. Stable handle. */
+  index: number;
+  /** 0-based line of the start of the list item. */
+  startLine: number;
+  /** 0-based line of the last line of the list item (inclusive). */
+  endLine: number;
+  /** Exact original text of the list-item lines. The compare-and-swap fingerprint. */
+  rawText: string;
+  /** Rendered HTML of the list item's body. */
+  rendered: string;
+  /** Has the task been marked done already? */
+  done: boolean;
+  /** "11:14 EDT" style timestamp parsed from the done marker, if any. */
+  doneTimestamp?: string;
+}
+
+export interface TaskBucket {
+  /** 0-based among buckets within one priority-tasks section. */
+  index: number;
+  /** 0-based line of the H3. */
+  headingLine: number;
+  /** Exclusive end line. */
+  endLine: number;
+  /** H3 text (e.g. "Do today — not negotiable"). */
+  label: string;
+  semantic: TaskSemantic;
+  tasks: PlanTask[];
+}
+
+const md = new MarkdownIt({ html: true, linkify: true, typographer: true });
+
+/** Heading classifier — substring + case-insensitive. First match wins. */
+function classifyH2(text: string): SectionKind {
+  const t = text.toLowerCase();
+  if (/decisions?\s+(needed|to\s+make)/.test(t)) return "decisions";
+  if (/^priority\s+tasks?\b|^tasks?\s+(for|today|remaining)\b|^tasks?\s*$|^tasks?\s*\(/.test(t)) return "priority-tasks";
+  if (/^drafts?\b|unsent\s*[—-]\s*ready/.test(t)) return "drafts";
+  if (/standup/.test(t)) return "standup";
+  if (/sent\s+messages?/.test(t)) return "sent-messages";
+  if (/waiting\s+on/.test(t)) return "waiting";
+  if (/(?:open\s+)?pr\s+queue|open\s+prs?/.test(t)) return "pr-queue";
+  if (/sync\s+state|staging\/deployment|deployment\s+status/.test(t)) return "sync-state";
+  if (/^completed\s+today/.test(t)) return "completed";
+  if (/what\s+happened|big\s+things|things\s+to\s+know|things\s+rajiv\s+should\s+know|carried\s+(from|items)|mid-?day\s+sync|summary[:]/.test(t)) return "briefing";
+  return "other";
+}
+
+function classifyH3(text: string): TaskSemantic {
+  const t = text.toLowerCase();
+  if (/not\s+negotiable|high\s+priority|critical|immediate/.test(t)) return "p0";
+  if (/should\s+make\s+it|medium\s+priority/.test(t)) return "p1";
+  if (/can\s+slip|lower\s+priority/.test(t)) return "p2";
+  if (/^stale\b|stale\s+target|stale\s+—|stale\s+\(/.test(t)) return "stale";
+  if (/^watch\b|watch\s*\/|waiting/.test(t)) return "watch";
+  return "other";
+}
+
+/**
+ * Strip surrounding `## ` / `### ` etc. markers and return the inline text
+ * for a given heading line in the raw source.
+ */
+function readHeadingText(lines: string[], lineIdx: number): string {
+  const ln = lines[lineIdx] ?? "";
+  return ln.replace(/^#+\s*/, "").trim();
+}
+
+/**
+ * Walk markdown tokens to collect H2-bounded sections.
+ */
+export function findPlanSections(raw: string): PlanSection[] {
+  const tokens = md.parse(raw, {});
+  const lines = raw.split("\n");
+  const sections: PlanSection[] = [];
+
+  // Find all H2 lines.
+  interface H2 {
+    line: number;
+    text: string;
+  }
+  const h2s: H2[] = [];
+  for (let i = 0; i < tokens.length; i++) {
+    const t = tokens[i];
+    if (t.type === "heading_open" && t.tag === "h2" && t.map) {
+      const line = t.map[0];
+      const text = readHeadingText(lines, line);
+      h2s.push({ line, text });
+    }
+  }
+
+  // Synthetic "header" section for content before the first H2 (status,
+  // morning ritual notes, etc.).
+  if (h2s.length === 0 || h2s[0].line > 0) {
+    const firstH2Line = h2s.length > 0 ? h2s[0].line : lines.length;
+    sections.push({
+      kind: "header",
+      headingLine: -1,
+      endLine: firstH2Line,
+      rawHeading: "",
+      rawBody: lines.slice(0, firstH2Line).join("\n"),
+    });
+  }
+
+  let decisionIndex = 0;
+  let taskIndex = 0;
+
+  for (let i = 0; i < h2s.length; i++) {
+    const h2 = h2s[i];
+    const endLine = i + 1 < h2s.length ? h2s[i + 1].line : lines.length;
+    const kind = classifyH2(h2.text);
+    const bodyLines = lines.slice(h2.line + 1, endLine);
+    const rawBody = bodyLines.join("\n");
+
+    const section: PlanSection = {
+      kind,
+      headingLine: h2.line,
+      endLine,
+      rawHeading: h2.text,
+      rawBody,
+    };
+
+    if (kind === "decisions") {
+      const result = extractDecisions(lines, h2.line, endLine, decisionIndex);
+      section.decisions = result.decisions;
+      decisionIndex = result.nextIndex;
+    } else if (kind === "priority-tasks") {
+      const result = extractTaskBuckets(lines, h2.line, endLine, taskIndex);
+      section.taskBuckets = result.buckets;
+      taskIndex = result.nextIndex;
+    }
+
+    sections.push(section);
+  }
+
+  return sections;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Decision extraction                                                         */
+/* -------------------------------------------------------------------------- */
+
+const OPTION_INLINE_RE = /^\s*\*\*\s*Option\s+([A-Z])\s*:?\s*\*\*\s*(.*)$/i;
+const RECOMMENDATION_INLINE_RE = /^\s*Recommendation\s*:\s*\*\*\s*([A-Z])\s*\*\*\s*(.*)$/i;
+const DECIDED_INLINE_RE = /^\s*\*\*\s*Decided\s*:?\s*\*\*\s*Option\s+([A-Z])\s*[—-]?\s*(.*)$/i;
+
+function extractDecisions(
+  lines: string[],
+  h2Line: number,
+  h2EndLine: number,
+  startIndex: number
+): { decisions: Decision[]; nextIndex: number } {
+  // Find all H3 lines within this section.
+  const h3s: { line: number; text: string }[] = [];
+  for (let i = h2Line + 1; i < h2EndLine; i++) {
+    const ln = lines[i] ?? "";
+    if (/^###\s+/.test(ln)) {
+      h3s.push({ line: i, text: readHeadingText(lines, i) });
+    }
+  }
+
+  const decisions: Decision[] = [];
+  for (let i = 0; i < h3s.length; i++) {
+    const h3 = h3s[i];
+    const endLine = i + 1 < h3s.length ? h3s[i + 1].line : h2EndLine;
+
+    // Strip leading "1. " or "2. " numbering from the question text if present.
+    const question = h3.text.replace(/^\d+\.\s*/, "").trim();
+
+    const options: DecisionOption[] = [];
+    let recommendationLetter: string | undefined;
+    let recommendationBody: string | undefined;
+    let decided = false;
+    let decidedOption: string | undefined;
+    let decidedAt: string | undefined;
+
+    for (let j = h3.line + 1; j < endLine; j++) {
+      const ln = lines[j] ?? "";
+
+      const optMatch = ln.match(OPTION_INLINE_RE);
+      if (optMatch) {
+        options.push({ letter: optMatch[1].toUpperCase(), body: optMatch[2].trim() });
+        continue;
+      }
+
+      const recMatch = ln.match(RECOMMENDATION_INLINE_RE);
+      if (recMatch) {
+        recommendationLetter = recMatch[1].toUpperCase();
+        recommendationBody = recMatch[2].trim();
+        continue;
+      }
+
+      const decMatch = ln.match(DECIDED_INLINE_RE);
+      if (decMatch) {
+        decided = true;
+        decidedOption = decMatch[1].toUpperCase();
+        decidedAt = decMatch[2].trim();
+        continue;
+      }
+    }
+
+    decisions.push({
+      index: startIndex + i,
+      headingLine: h3.line,
+      endLine,
+      question,
+      options,
+      recommendationLetter,
+      recommendationBody,
+      decided,
+      decidedOption,
+      decidedAt,
+    });
+  }
+
+  return { decisions, nextIndex: startIndex + h3s.length };
+}
+
+/* -------------------------------------------------------------------------- */
+/* Task bucket + task extraction                                              */
+/* -------------------------------------------------------------------------- */
+
+const TASK_DONE_DETECT_RE = /^(?:\s*[-*+]\s+\[x\]|.*?✅|.*?~~|^\s*\d+\.\s*~~|.*?\bDONE\b|.*?\bSENT\b)/;
+const TASK_DONE_TIMESTAMP_RE = /(?:✅|~~)\s*\*\*\s*(?:DONE|SENT)\s+([^*]+?)\*\*/i;
+
+function extractTaskBuckets(
+  lines: string[],
+  h2Line: number,
+  h2EndLine: number,
+  startIndex: number
+): { buckets: TaskBucket[]; nextIndex: number } {
+  // Find all H3 lines.
+  const h3s: { line: number; text: string }[] = [];
+  for (let i = h2Line + 1; i < h2EndLine; i++) {
+    const ln = lines[i] ?? "";
+    if (/^###\s+/.test(ln)) {
+      h3s.push({ line: i, text: readHeadingText(lines, i) });
+    }
+  }
+
+  // If no H3s exist, treat the whole H2 body as one anonymous bucket.
+  if (h3s.length === 0) {
+    const tasks = extractTasksInRange(lines, h2Line + 1, h2EndLine, startIndex);
+    return {
+      buckets: [
+        {
+          index: 0,
+          headingLine: h2Line,
+          endLine: h2EndLine,
+          label: "",
+          semantic: "other",
+          tasks,
+        },
+      ],
+      nextIndex: startIndex + tasks.length,
+    };
+  }
+
+  const buckets: TaskBucket[] = [];
+  let cursor = startIndex;
+
+  for (let i = 0; i < h3s.length; i++) {
+    const h3 = h3s[i];
+    const endLine = i + 1 < h3s.length ? h3s[i + 1].line : h2EndLine;
+    const tasks = extractTasksInRange(lines, h3.line + 1, endLine, cursor);
+    cursor += tasks.length;
+    buckets.push({
+      index: i,
+      headingLine: h3.line,
+      endLine,
+      label: h3.text,
+      semantic: classifyH3(h3.text),
+      tasks,
+    });
+  }
+
+  return { buckets, nextIndex: cursor };
+}
+
+/**
+ * Extract task list items from a range of lines.
+ *
+ * Detects:
+ *   - Numbered list items: lines starting with `^\d+\.\s+`
+ *   - Checkbox list items: lines starting with `^[-*+]\s+\[[ xX]\]\s+`
+ *
+ * A task spans from its leading line through any following indented continuation
+ * lines (lines whose leading whitespace is greater than the leading whitespace
+ * of the task's first line, OR blank lines followed by more indented content).
+ *
+ * Stops at a less-indented non-blank line, a heading, or the end of the range.
+ */
+function extractTasksInRange(
+  lines: string[],
+  start: number,
+  end: number,
+  startIndex: number
+): PlanTask[] {
+  const tasks: PlanTask[] = [];
+  let i = start;
+
+  while (i < end) {
+    const ln = lines[i] ?? "";
+    const numbered = ln.match(/^(\s*)(\d+)\.\s+(.*)$/);
+    const checkbox = ln.match(/^(\s*)([-*+])\s+\[([ xX])\]\s+(.*)$/);
+
+    if (!numbered && !checkbox) {
+      i++;
+      continue;
+    }
+
+    const baseIndent = (numbered ? numbered[1] : checkbox![1]).length;
+    const taskStart = i;
+    let taskEnd = i;
+
+    // Walk continuation lines.
+    for (let j = i + 1; j < end; j++) {
+      const cont = lines[j] ?? "";
+      if (cont.trim() === "") {
+        // Blank — peek next non-blank.
+        let k = j + 1;
+        while (k < end && (lines[k] ?? "").trim() === "") k++;
+        if (k >= end) {
+          // All trailing blanks — stop here.
+          break;
+        }
+        const nextLine = lines[k];
+        const nextNumbered = nextLine.match(/^(\s*)\d+\.\s+/);
+        const nextCheckbox = nextLine.match(/^(\s*)[-*+]\s+\[[ xX]\]\s+/);
+        const nextHeading = /^#+\s+/.test(nextLine);
+        if (nextHeading) break;
+        if (nextNumbered || nextCheckbox) {
+          // Sibling list item starts after the blank — stop.
+          const nextIndent = (nextNumbered ? nextNumbered[1] : nextCheckbox![1]).length;
+          if (nextIndent <= baseIndent) break;
+        }
+        const nextIndent = (nextLine.match(/^(\s*)/)?.[1] || "").length;
+        if (nextIndent <= baseIndent) break;
+        // Otherwise a continuation block separated by blank line — include it.
+        taskEnd = k;
+        j = k;
+        continue;
+      }
+      // Non-blank continuation.
+      const indent = (cont.match(/^(\s*)/)?.[1] || "").length;
+      if (/^#+\s+/.test(cont)) break;
+      const sibNumbered = cont.match(/^(\s*)\d+\.\s+/);
+      const sibCheckbox = cont.match(/^(\s*)[-*+]\s+\[[ xX]\]\s+/);
+      if ((sibNumbered || sibCheckbox) && indent <= baseIndent) break;
+      if (indent <= baseIndent && !/^[-*+]\s/.test(cont.trimStart())) break;
+      taskEnd = j;
+    }
+
+    const rawText = lines.slice(taskStart, taskEnd + 1).join("\n");
+    const done = detectDone(rawText);
+    const doneTimestamp = done ? extractDoneTimestamp(rawText) : undefined;
+
+    tasks.push({
+      index: startIndex + tasks.length,
+      startLine: taskStart,
+      endLine: taskEnd,
+      rawText,
+      rendered: md.render(rawText.replace(/^(\s*)\d+\.\s+/, "")),
+      done,
+      doneTimestamp,
+    });
+
+    i = taskEnd + 1;
+  }
+
+  return tasks;
+}
+
+function detectDone(rawText: string): boolean {
+  // Look at the first ~120 chars (covers leading bold + done marker).
+  const head = rawText.slice(0, 200);
+  return TASK_DONE_DETECT_RE.test(head);
+}
+
+function extractDoneTimestamp(rawText: string): string | undefined {
+  const m = rawText.match(TASK_DONE_TIMESTAMP_RE);
+  return m ? m[1].trim() : undefined;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Index lookups                                                              */
+/* -------------------------------------------------------------------------- */
+
+export function findDecisionByIndex(raw: string, idx: number): Decision | null {
+  const sections = findPlanSections(raw);
+  for (const section of sections) {
+    if (section.decisions) {
+      for (const d of section.decisions) {
+        if (d.index === idx) return d;
+      }
+    }
+  }
+  return null;
+}
+
+export function findTaskByIndex(raw: string, idx: number): PlanTask | null {
+  const sections = findPlanSections(raw);
+  for (const section of sections) {
+    if (section.taskBuckets) {
+      for (const bucket of section.taskBuckets) {
+        for (const t of bucket.tasks) {
+          if (t.index === idx) return t;
+        }
+      }
+    }
+  }
+  return null;
+}
+
+/** Collect all decisions across the whole plan, in document order. */
+export function collectAllDecisions(sections: PlanSection[]): Decision[] {
+  const out: Decision[] = [];
+  for (const s of sections) {
+    if (s.decisions) out.push(...s.decisions);
+  }
+  return out;
+}
+
+/** Collect all tasks across the whole plan, in document order. */
+export function collectAllTasks(sections: PlanSection[]): PlanTask[] {
+  const out: PlanTask[] = [];
+  for (const s of sections) {
+    if (s.taskBuckets) {
+      for (const b of s.taskBuckets) out.push(...b.tasks);
+    }
+  }
+  return out;
+}
