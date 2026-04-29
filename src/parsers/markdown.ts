@@ -486,18 +486,32 @@ function isSendable(target: SendToTarget | null, dir: SlackDirectory): boolean {
 }
 
 /**
- * Walk the rendered HTML, find draft sections (heading-bounded sections that contain a
- * `<strong>Send to:</strong>` paragraph), and append an action bar after the first
- * message container (fenced code block or blockquote) following that paragraph.
+ * Walk the rendered HTML, find draft sections (heading-bounded sections that
+ * contain a `<strong>Send to:</strong>` paragraph), and decorate each with a
+ * `<div class="draft-body-region">` wrapper around the entire body plus an
+ * action bar appended at the end of the wrapper.
  *
- * Conservative by design: only the first message container per section is augmented,
- * and a section without a Send-to/Channel marker is left untouched.
+ * v0.8.5+ region semantics
+ * ------------------------
+ * The body region spans from the end of the `<strong>Send to:</strong>`
+ * paragraph to the start of the next heading, the next `<p><strong>Sent:</strong>`
+ * paragraph, or the next `<p><strong>Grounding:</strong>` paragraph (whichever
+ * comes first inside the section). Everything between is the body — fenced
+ * code blocks, blockquotes, paragraphs, lists, all of it.
  *
- * The pre-scanned `drafts` array (from findDraftBlocks on the same source) is consumed
- * in document order so each augmented section is paired with its DraftBlock metadata
- * for the Edit button. If a section doesn't have a corresponding draft (because the
- * pre-scan disagreed — e.g., the strikethrough-fence preprocessor diverged from the
- * raw source), the action bar still renders Copy + Slack/Email but no Edit button.
+ * Wrapping the entire region (rather than just the first fenced block) handles
+ * three cases under one rule:
+ *   - Single-fence drafts (the common case) — the wrapper contains one <pre>.
+ *   - Single-blockquote drafts — the wrapper contains one <blockquote>.
+ *   - Multi-segment drafts (intro prose + ```code``` + middle prose + ...) —
+ *     the wrapper contains heterogeneous children. The action bar still lands
+ *     once at the end. Copy/Send capture the entire bodyText for Slack.
+ *
+ * The pre-scanned `drafts` array (from findDraftBlocks on the same source)
+ * is consumed in document order so each augmented section is paired with its
+ * DraftBlock metadata for the Edit button. If a section doesn't have a
+ * corresponding draft, the action bar still renders Copy + Slack/Email but no
+ * Edit button.
  */
 function augmentDraftBlocks(
   html: string,
@@ -527,37 +541,50 @@ function augmentDraftBlocks(
       : undefined;
 
     const sendToEnd = sendToMatch.index + sendToMatch[0].length;
+
+    // Body region ends BEFORE a Sent or Grounding paragraph inside this
+    // section, or at the section end. We search the slice after Send-to.
+    const afterSlice = section.slice(sendToEnd);
+    const sentRel = afterSlice.search(/<p>\s*<strong>Sent(?:\s*at)?:?<\/strong>/i);
+    const groundingRel = afterSlice.search(/<p>\s*<strong>Grounding:?<\/strong>/i);
+
+    let bodyEndRel = afterSlice.length;
+    if (sentRel >= 0) bodyEndRel = Math.min(bodyEndRel, sentRel);
+    if (groundingRel >= 0) bodyEndRel = Math.min(bodyEndRel, groundingRel);
+
     const before = section.slice(0, sendToEnd);
-    const after = section.slice(sendToEnd);
+    let bodyHtml = afterSlice.slice(0, bodyEndRel);
+    const tail = afterSlice.slice(bodyEndRel);
 
-    let augmented = false;
-    const newAfter = after.replace(
-      /(<pre><code[^>]*>[\s\S]*?<\/code><\/pre>|<blockquote>[\s\S]*?<\/blockquote>)/,
-      (match) => {
-        if (augmented) return match;
-        augmented = true;
-        const draft = drafts[draftCursor];
-        const actionsHtml = renderDraftActions(target, subject, {
-          draft,
-          editable: opts.editable,
-          slackEnabled: opts.slackEnabled,
-          directory: opts.directory,
-          slack: opts.slack,
-        });
-        // For sent drafts: ALSO mark the body as sent visually (CSS picks up
-        // the data-sent attribute on the parent and styles the preceding
-        // pre/blockquote).
-        if (draft?.alreadySent) {
-          // Wrap in a sent-state container so CSS can style the body.
-          return `<div class="draft-sent-body">${match}</div>${actionsHtml}`;
-        }
-        return match + actionsHtml;
-      }
-    );
+    // Skip the case where the body is effectively empty — no message content.
+    if (bodyHtml.replace(/\s+/g, "").length === 0) {
+      sections[i] = section;
+      continue;
+    }
 
-    if (augmented) draftCursor++;
+    // If a Subject paragraph sits inside the body region, leave it inside —
+    // it's metadata adjacent to the message but logically part of the draft
+    // header. The wrapper still encloses everything between Send-to and the
+    // body-end markers.
+    const draft = drafts[draftCursor];
+    draftCursor++;
 
-    sections[i] = before + newAfter;
+    const actionsHtml = renderDraftActions(target, subject, {
+      draft,
+      editable: opts.editable,
+      slackEnabled: opts.slackEnabled,
+      directory: opts.directory,
+      slack: opts.slack,
+    });
+
+    const wrapperClasses = ["draft-body-region", `draft-body-${draft?.kind || "unknown"}`];
+    if (draft?.alreadySent) wrapperClasses.push("draft-sent-region");
+    const wrapperAttrs = draft
+      ? ` data-draft-index="${draft.index}" data-draft-kind="${draft.kind}"`
+      : "";
+    const wrappedBody = `<div class="${wrapperClasses.join(" ")}"${wrapperAttrs}>${bodyHtml}</div>${actionsHtml}`;
+
+    sections[i] = before + wrappedBody + tail;
   }
 
   return sections.join("");

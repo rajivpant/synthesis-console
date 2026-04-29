@@ -918,6 +918,37 @@ nav a.active {
   text-decoration-color: rgba(75, 85, 99, 0.5);
 }
 
+/* ---- Draft body region wrapper (v0.8.5+) ---- */
+/*
+ * The wrapper encloses the entire draft body — single fence, single
+ * blockquote, OR multi-segment (intro prose + ```code``` + middle prose +
+ * ...). The action bar lands once at the end of the wrapper. For sent
+ * drafts, the wrapper picks up .draft-sent-region to dim and strike the
+ * whole body.
+ */
+.draft-body-region {
+  /* No box styling by default — children render as if they were direct
+   * siblings of the section. The wrapper is structural, not decorative. */
+}
+
+.draft-body-region.draft-sent-region {
+  opacity: 0.75;
+}
+
+.draft-body-region.draft-sent-region pre,
+.draft-body-region.draft-sent-region blockquote,
+.draft-body-region.draft-sent-region p {
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+  text-decoration-color: rgba(75, 85, 99, 0.5);
+}
+
+/* Multi-segment drafts: separate the visual blocks subtly so the user can
+ * see that fences and prose alternate rather than running together. */
+.draft-body-region.draft-body-multi-segment > * + * {
+  margin-top: 0.5rem;
+}
+
 /* ---- Send-to-Slack confirmation modal ---- */
 .send-modal-overlay {
   position: fixed;

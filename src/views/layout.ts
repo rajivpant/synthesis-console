@@ -233,9 +233,23 @@ function layoutScript(): string {
       }
 
       function getDraftText(actionsEl) {
+        // Canonical source: data-original-text holds the parser's bodyText
+        // (kind-aware: inside-fence content for "fenced", >-stripped content
+        // for "blockquote", verbatim region for "multi-segment"). For Copy/
+        // Send, this is what we want — Slack receives a paste-ready message
+        // that doesn't include outer fence delimiters but does preserve
+        // multi-segment internal structure.
+        if (typeof actionsEl.dataset !== 'undefined' &&
+            typeof actionsEl.dataset.originalText === 'string') {
+          return actionsEl.dataset.originalText.replace(/\\u00A0/g, ' ').trim();
+        }
+        // Fallback for sections without a parser-tracked draft (rare): read
+        // text from the preceding draft-body-region wrapper or directly from
+        // a pre/blockquote sibling.
         var prev = actionsEl.previousElementSibling;
-        // If actionsEl is a direct sibling of pre/blockquote, prev is that. If it's
-        // inside a draft-sent-body wrapper, descend. Try both.
+        if (prev && prev.classList && prev.classList.contains('draft-body-region')) {
+          return (prev.innerText || prev.textContent || '').replace(/\\u00A0/g, ' ').trim();
+        }
         if (prev && prev.classList && prev.classList.contains('draft-sent-body')) {
           var inner = prev.querySelector('pre, blockquote');
           if (inner) return (inner.innerText || inner.textContent || '').replace(/\\u00A0/g, ' ').trim();
@@ -283,10 +297,20 @@ function layoutScript(): string {
       }
 
       function findMessageEl(actionsEl) {
-        // The message is the nearest preceding pre or blockquote sibling
-        // (skip an existing textarea inserted in edit mode).
+        // v0.8.5+: the action bar is preceded by a .draft-body-region wrapper
+        // that contains the entire draft body (one fence, one blockquote, OR
+        // a heterogeneous multi-segment body). The wrapper is the unit Edit
+        // mode hides and shows.
         var node = actionsEl.previousElementSibling;
         while (node) {
+          if (node.classList && node.classList.contains('draft-body-region')) return node;
+          // Skip an existing textarea inserted by an in-progress Edit.
+          if (node.tagName === 'TEXTAREA') {
+            node = node.previousElementSibling;
+            continue;
+          }
+          // Backward-compat fallback: pre-v0.8.5 augmentation wrapped a single
+          // pre/blockquote without a region wrapper.
           var tag = node.tagName;
           if (tag === 'PRE' || tag === 'BLOCKQUOTE') return node;
           node = node.previousElementSibling;
@@ -298,6 +322,7 @@ function layoutScript(): string {
         var node = actionsEl.previousElementSibling;
         while (node) {
           if (node.tagName === 'TEXTAREA' && node.classList.contains('draft-textarea')) return node;
+          if (node.classList && node.classList.contains('draft-body-region')) return null;
           if (node.tagName === 'PRE' || node.tagName === 'BLOCKQUOTE') return null;
           node = node.previousElementSibling;
         }

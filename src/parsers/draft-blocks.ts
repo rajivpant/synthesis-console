@@ -2,26 +2,87 @@
  * Draft block parser for daily plans.
  *
  * Operates on raw markdown source — independent of the rendered HTML — so the
- * results survive any rendering changes downstream. A "draft block" is the first
- * fenced code block or blockquote inside a heading-bounded section that contains
- * a `**Send to:**` (or `**Channel:**`) paragraph. Drafts are numbered in document
- * order starting at 0; the index is the stable handle used by the save endpoint.
+ * results survive any rendering changes downstream. A "draft" is the body
+ * region of a heading-bounded section that contains a `**Send to:**` (or
+ * `**Channel:**`) paragraph.
+ *
+ * Body region (v0.8.5+)
+ * ---------------------
+ * The body region spans from the line AFTER the `**Send to:**` paragraph (and
+ * any optional `**Subject:**` paragraph) through the line BEFORE any of these
+ * end-of-body markers, in priority order:
+ *
+ *   - The next heading (h1–h6) — boundary inherited from sectionEndLine
+ *   - A `**Sent:**` paragraph — marks an already-sent draft
+ *   - A `**Grounding:**` paragraph — marks the start of metadata about the draft
+ *   - End of file
+ *
+ * The region may be a single fenced code block, a single blockquote, OR a
+ * heterogeneous sequence of fences + blockquotes + paragraphs + lists. The
+ * parser detects an "outer wrapper" only when the entire region is exactly one
+ * fence or exactly one blockquote.
+ *
+ * Field semantics
+ * ---------------
+ * Two parallel ranges are tracked, both inclusive:
+ *
+ *   regionStartLine, regionEndLine — the FULL body region, including any
+ *     outer fence/blockquote markers. Used by augmentDraftBlocks to attach
+ *     the action bar at the end of the body and by markDraftAsSent to insert
+ *     the **Sent:** marker at the right place.
+ *
+ *   bodyStartLine, bodyEndLine — the EDITABLE inner content. For "fenced"
+ *     drafts, this excludes the open/close fence lines; for "blockquote",
+ *     this is the same as the region but bodyText has `>` prefixes stripped;
+ *     for "multi-segment", this equals the region.
+ *
+ *   bodyText — what the user edits in the Edit textarea, and the
+ *     compare-and-swap fingerprint. Per kind: inside-fence content; `>`-
+ *     stripped blockquote content; verbatim region for multi-segment.
+ *
+ * For multi-segment bodies (Postel's Law for the structural axis): the
+ * Copy/Send paths emit bodyText verbatim — any internal triple-backtick
+ * fences pass through to Slack, which renders them as Slack code blocks.
+ *
+ * The contract with synthesis-daily-rituals (the producer skill) lives in
+ *   - synthesis-console/docs/cockpit-design.md (vocabulary + body shapes)
+ *   - synthesis-skills/synthesis-daily-rituals/SKILL.md (canonical fence forms)
+ * Drift between them is the bug source — they must change together.
  */
 import MarkdownIt from "markdown-it";
 
-export type DraftKind = "fenced" | "blockquote";
+export type DraftKind = "fenced" | "blockquote" | "multi-segment";
 
 export interface DraftBlock {
   /** 0-based position in document order. */
   index: number;
-  /** Raw body text from markdown source (no fence markers, no `>` prefixes). */
+  /**
+   * Editable inner content. For "fenced": inside the fence. For "blockquote":
+   * `>`-stripped content. For "multi-segment": same as the full region. The
+   * compare-and-swap fingerprint and the Edit textarea source.
+   */
   bodyText: string;
   kind: DraftKind;
-  /** 0-based inclusive line range of the body in the source. For empty bodies, end < start. */
+  /**
+   * Inclusive line range of the editable inner content (matches bodyText).
+   * For "fenced": between the open and close fence (exclusive). For
+   * "blockquote": full blockquote range (inclusive). For "multi-segment":
+   * full region range.
+   */
   bodyStartLine: number;
   bodyEndLine: number;
-  /** Line of the opening fence (fenced kind only). */
+  /**
+   * Inclusive line range of the FULL body region, including any outer
+   * fence/blockquote markers. Used by augmentDraftBlocks (action bar
+   * attachment), markDraftAsSent (marker insertion), and the rendered HTML
+   * wrapper.
+   */
+  regionStartLine: number;
+  regionEndLine: number;
+  /** Line of the opening fence — only set for kind="fenced". */
   fenceLine?: number;
+  /** Markup of the outer fence (e.g. "```" or "````") — only set for kind="fenced". */
+  fenceMarkup?: string;
   /** Raw text after `**Send to:**` (or `**Channel:**`) in the markdown source. */
   sendToText?: string;
   /** Raw text after `**Subject:**` if present. */
@@ -48,23 +109,20 @@ const md = new MarkdownIt({ html: true, linkify: true, typographer: true });
 const SEND_TO_INLINE_RE = /^\s*\*\*\s*(?:Send to|Channel)\s*:?\s*\*\*/i;
 const SUBJECT_INLINE_RE = /^\s*\*\*\s*Subject\s*:?\s*\*\*/i;
 const SENT_INLINE_RE = /^\s*\*\*\s*Sent(?:\s*at)?\s*:?\s*\*\*/i;
+const GROUNDING_INLINE_RE = /^\s*\*\*\s*Grounding\s*:?\s*\*\*/i;
+
+interface ParagraphMeta {
+  startLine: number;
+  endLineExclusive: number;
+  text: string;
+}
 
 export function findDraftBlocks(raw: string): DraftBlock[] {
   const tokens = md.parse(raw, {});
   const lines = raw.split("\n");
   const drafts: DraftBlock[] = [];
 
-  let sawSendTo = false;
-  let augmentedThisSection = false;
-  let currentSendToText: string | undefined;
-  let currentSubjectText: string | undefined;
-  let currentSectionHeadingLine: number | undefined;
-  let currentSectionEndLine: number | undefined;
-  let currentDraftIdx: number | undefined; // index in drafts[] for the current section, set when we push
-  let blockquoteDepth = 0;
-
   // Pre-compute heading line ranges so each section knows its end line.
-  // Walk tokens to find heading_open positions, then attribute section ends.
   const headingLines: number[] = [];
   for (const t of tokens) {
     if (t.type === "heading_open" && t.map) headingLines.push(t.map[0]);
@@ -78,123 +136,307 @@ export function findDraftBlocks(raw: string): DraftBlock[] {
     return lines.length - 1;
   }
 
+  // Pre-compute paragraphs (start/end + inline text) so we can recognize the
+  // **Send to:** / **Subject:** / **Sent:** / **Grounding:** markers and
+  // their line spans.
+  const paragraphs: ParagraphMeta[] = [];
   for (let i = 0; i < tokens.length; i++) {
     const t = tokens[i];
-
-    if (t.type === "heading_open") {
-      sawSendTo = false;
-      augmentedThisSection = false;
-      currentSendToText = undefined;
-      currentSubjectText = undefined;
-      currentSectionHeadingLine = t.map ? t.map[0] : undefined;
-      currentSectionEndLine =
-        currentSectionHeadingLine !== undefined
-          ? endLineOfSectionStartingAt(currentSectionHeadingLine)
-          : undefined;
-      currentDraftIdx = undefined;
-      continue;
-    }
-
-    if (t.type === "blockquote_open") blockquoteDepth++;
-    if (t.type === "blockquote_close") blockquoteDepth--;
-
-    if (t.type === "paragraph_open" && tokens[i + 1]?.type === "inline") {
-      const inline = tokens[i + 1].content;
-      if (SEND_TO_INLINE_RE.test(inline)) {
-        sawSendTo = true;
-        currentSendToText = inline.replace(SEND_TO_INLINE_RE, "").trim();
-      } else if (SUBJECT_INLINE_RE.test(inline)) {
-        currentSubjectText = inline.replace(SUBJECT_INLINE_RE, "").trim();
-      } else if (SENT_INLINE_RE.test(inline) && currentDraftIdx !== undefined) {
-        // Annotate the most-recently-pushed draft in this section as already sent.
-        const sentTail = inline.replace(SENT_INLINE_RE, "").trim();
-        const draft = drafts[currentDraftIdx];
-        if (draft) {
-          draft.alreadySent = true;
-          draft.sentAt = parseSentTimestamp(sentTail);
-          draft.sentTs = parseSentTs(sentTail);
-          draft.sentPermalink = parseSentPermalink(sentTail);
-        }
-      }
-    }
-
-    if (!sawSendTo || augmentedThisSection) continue;
-
-    if (t.type === "fence" && t.map) {
-      const openLine = t.map[0];
-      const endExclusive = t.map[1];
-      const closeFenceLine = findCloseFenceLine(lines, openLine, t.markup, endExclusive);
-      currentDraftIdx = drafts.length;
-      drafts.push({
-        index: drafts.length,
-        bodyText: stripTrailingNewline(t.content),
-        kind: "fenced",
-        bodyStartLine: openLine + 1,
-        bodyEndLine: closeFenceLine - 1,
-        fenceLine: openLine,
-        sendToText: currentSendToText,
-        subjectText: currentSubjectText,
-        sectionHeadingLine: currentSectionHeadingLine,
-        sectionEndLine: currentSectionEndLine,
-        alreadySent: false,
+    if (t.type === "paragraph_open" && t.map && tokens[i + 1]?.type === "inline") {
+      paragraphs.push({
+        startLine: t.map[0],
+        endLineExclusive: t.map[1],
+        text: tokens[i + 1].content,
       });
-      augmentedThisSection = true;
-      continue;
-    }
-
-    if (t.type === "blockquote_open" && t.map && blockquoteDepth === 1) {
-      const startLine = t.map[0];
-      const closeIdx = findMatchingBlockquoteClose(tokens, i);
-      const endExclusive =
-        closeIdx >= 0 && tokens[closeIdx].map ? tokens[closeIdx].map![1] : t.map[1];
-      const endLine = endExclusive - 1;
-
-      const bodyLines: string[] = [];
-      for (let k = startLine; k <= endLine; k++) {
-        const ln = lines[k] ?? "";
-        const m = ln.match(/^(\s*)>\s?(.*)$/);
-        bodyLines.push(m ? m[2] : ln);
-      }
-      currentDraftIdx = drafts.length;
-      drafts.push({
-        index: drafts.length,
-        bodyText: bodyLines.join("\n").replace(/\s+$/, ""),
-        kind: "blockquote",
-        bodyStartLine: startLine,
-        bodyEndLine: endLine,
-        sendToText: currentSendToText,
-        subjectText: currentSubjectText,
-        sectionHeadingLine: currentSectionHeadingLine,
-        sectionEndLine: currentSectionEndLine,
-        alreadySent: false,
-      });
-      augmentedThisSection = true;
     }
   }
+
+  let currentSectionHeading: number | undefined;
+  let currentSectionEnd: number | undefined;
+  let pendingSendToInSection: ParagraphMeta | undefined;
+  let pendingSubjectInSection: ParagraphMeta | undefined;
+
+  function emitForCurrentSendTo(): void {
+    if (!pendingSendToInSection || currentSectionHeading === undefined) return;
+    const sendTo = pendingSendToInSection;
+    const subject = pendingSubjectInSection;
+    const sectionEnd = currentSectionEnd ?? lines.length - 1;
+
+    // Body region: starts after Send-to (and Subject if Subject follows
+    // Send-to and lives before the body).
+    let regionStart = sendTo.endLineExclusive;
+    if (
+      subject &&
+      subject.startLine >= sendTo.endLineExclusive &&
+      subject.endLineExclusive <= sectionEnd + 1
+    ) {
+      regionStart = Math.max(regionStart, subject.endLineExclusive);
+    }
+
+    // Skip leading blank lines — they're separators, not content.
+    while (regionStart <= sectionEnd && (lines[regionStart] ?? "").trim() === "") {
+      regionStart++;
+    }
+
+    // Body ends BEFORE the first end-marker paragraph (Sent or Grounding) in
+    // the section, or at sectionEnd if none.
+    let regionEnd = sectionEnd;
+    let sentMarkerParagraph: ParagraphMeta | undefined;
+    for (const p of paragraphs) {
+      if (p.startLine < regionStart || p.startLine > sectionEnd) continue;
+      if (SENT_INLINE_RE.test(p.text)) {
+        regionEnd = Math.min(regionEnd, p.startLine - 1);
+        sentMarkerParagraph = p;
+        break;
+      }
+      if (GROUNDING_INLINE_RE.test(p.text)) {
+        regionEnd = Math.min(regionEnd, p.startLine - 1);
+        break;
+      }
+    }
+
+    // Trim trailing blank lines.
+    while (regionEnd >= regionStart && (lines[regionEnd] ?? "").trim() === "") {
+      regionEnd--;
+    }
+
+    // Detect outer wrapper: exactly one fenced block or exactly one blockquote
+    // spanning the whole region.
+    const wrapper = detectOuterWrapper(tokens, regionStart, regionEnd);
+
+    let bodyText = "";
+    let bodyStartLine = regionStart;
+    let bodyEndLine = regionEnd;
+    let kind: DraftKind = "multi-segment";
+
+    if (regionEnd >= regionStart) {
+      if (wrapper.kind === "fenced") {
+        // bodyText excludes the open and close fence lines.
+        kind = "fenced";
+        bodyStartLine = regionStart + 1;
+        bodyEndLine = regionEnd - 1;
+        if (bodyEndLine >= bodyStartLine) {
+          bodyText = lines.slice(bodyStartLine, bodyEndLine + 1).join("\n");
+        }
+      } else if (wrapper.kind === "blockquote") {
+        // bodyText has the leading `>` (and one optional space) stripped.
+        kind = "blockquote";
+        const bodyLines: string[] = [];
+        for (let k = regionStart; k <= regionEnd; k++) {
+          const ln = lines[k] ?? "";
+          const m = ln.match(/^(\s*)>\s?(.*)$/);
+          bodyLines.push(m ? m[2] : ln);
+        }
+        bodyText = bodyLines.join("\n");
+      } else {
+        // Multi-segment: bodyText is the verbatim region.
+        kind = "multi-segment";
+        bodyText = lines.slice(regionStart, regionEnd + 1).join("\n");
+      }
+    }
+
+    const draftIndex = drafts.length;
+    const draft: DraftBlock = {
+      index: draftIndex,
+      bodyText,
+      kind,
+      bodyStartLine,
+      bodyEndLine,
+      regionStartLine: regionStart,
+      regionEndLine: regionEnd,
+      fenceLine: kind === "fenced" ? regionStart : undefined,
+      fenceMarkup: kind === "fenced" ? wrapper.fenceMarkup : undefined,
+      sendToText: sendTo.text.replace(SEND_TO_INLINE_RE, "").trim(),
+      subjectText: subject ? subject.text.replace(SUBJECT_INLINE_RE, "").trim() : undefined,
+      sectionHeadingLine: currentSectionHeading,
+      sectionEndLine: currentSectionEnd,
+      alreadySent: false,
+    };
+
+    if (sentMarkerParagraph) {
+      const tail = sentMarkerParagraph.text.replace(SENT_INLINE_RE, "").trim();
+      draft.alreadySent = true;
+      draft.sentAt = parseSentTimestamp(tail);
+      draft.sentTs = parseSentTs(tail);
+      draft.sentPermalink = parseSentPermalink(tail);
+    }
+
+    drafts.push(draft);
+
+    pendingSendToInSection = undefined;
+    pendingSubjectInSection = undefined;
+  }
+
+  for (let i = 0; i < tokens.length; i++) {
+    const t = tokens[i];
+    if (t.type === "heading_open" && t.map) {
+      // Closing the previous section: emit the pending Send-to (if any).
+      emitForCurrentSendTo();
+      currentSectionHeading = t.map[0];
+      currentSectionEnd = endLineOfSectionStartingAt(currentSectionHeading);
+      pendingSendToInSection = undefined;
+      pendingSubjectInSection = undefined;
+      continue;
+    }
+
+    if (t.type === "paragraph_open" && t.map && tokens[i + 1]?.type === "inline") {
+      const inline = tokens[i + 1].content;
+      const meta: ParagraphMeta = {
+        startLine: t.map[0],
+        endLineExclusive: t.map[1],
+        text: inline,
+      };
+      if (SEND_TO_INLINE_RE.test(inline)) {
+        // One Send-to per section (per existing convention). If a second one
+        // appears, emit the pending one first and start fresh.
+        if (pendingSendToInSection) emitForCurrentSendTo();
+        pendingSendToInSection = meta;
+      } else if (SUBJECT_INLINE_RE.test(inline)) {
+        pendingSubjectInSection = meta;
+      }
+    }
+  }
+
+  // Flush any remaining pending Send-to at end-of-document.
+  emitForCurrentSendTo();
 
   return drafts;
 }
 
-function parseSentTimestamp(s: string): string | undefined {
-  // Accept "2026-04-25 02:00:00 EDT" or "2026-04-25T02:00:00-04:00" or "Apr 25 2026 02:00 EDT"
-  const isoMatch = s.match(/(\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2})?(?:\s*\w{2,5})?)/);
-  return isoMatch ? isoMatch[1].trim() : undefined;
-}
+/**
+ * Detect whether a body region is wrapped by exactly one fenced code block or
+ * exactly one blockquote. Returns the kind + fence markup, or { kind:
+ * undefined } when the region has multiple top-level blocks (multi-segment).
+ */
+function detectOuterWrapper(
+  tokens: ReturnType<typeof md.parse>,
+  regionStart: number,
+  regionEnd: number
+): { kind?: "fenced" | "blockquote"; fenceMarkup?: string } {
+  if (regionEnd < regionStart) return {};
 
-function parseSentTs(s: string): string | undefined {
-  const m = s.match(/TS\s*[=:]\s*([\d.]+)/i);
-  return m ? m[1] : undefined;
-}
+  interface TopBlock {
+    type: string;
+    startLine: number;
+    endLineExclusive: number;
+    markup?: string;
+  }
+  const topBlocks: TopBlock[] = [];
 
-function parseSentPermalink(s: string): string | undefined {
-  const m = s.match(/(https?:\/\/[^\s)]+)/);
-  return m ? m[1] : undefined;
+  let depth = 0;
+  for (let i = 0; i < tokens.length; i++) {
+    const t = tokens[i];
+    if (
+      t.type === "blockquote_open" ||
+      t.type === "bullet_list_open" ||
+      t.type === "ordered_list_open"
+    ) {
+      if (depth === 0 && t.map) {
+        let closeIdx = -1;
+        let inner = depth + 1;
+        const closeType =
+          t.type === "blockquote_open"
+            ? "blockquote_close"
+            : t.type === "bullet_list_open"
+              ? "bullet_list_close"
+              : "ordered_list_close";
+        for (let j = i + 1; j < tokens.length; j++) {
+          if (tokens[j].type === t.type) inner++;
+          if (tokens[j].type === closeType) {
+            inner--;
+            if (inner === 0) {
+              closeIdx = j;
+              break;
+            }
+          }
+        }
+        const endExclusive =
+          closeIdx >= 0 && tokens[closeIdx].map ? tokens[closeIdx].map![1] : t.map[1];
+        topBlocks.push({
+          type: t.type === "blockquote_open" ? "blockquote" : "list",
+          startLine: t.map[0],
+          endLineExclusive: endExclusive,
+        });
+      }
+      depth++;
+      continue;
+    }
+    if (
+      t.type === "blockquote_close" ||
+      t.type === "bullet_list_close" ||
+      t.type === "ordered_list_close"
+    ) {
+      depth--;
+      continue;
+    }
+    if (depth > 0) continue;
+    if (!t.map) continue;
+    if (t.type === "fence") {
+      topBlocks.push({
+        type: "fence",
+        startLine: t.map[0],
+        endLineExclusive: t.map[1],
+        markup: t.markup,
+      });
+    } else if (
+      t.type === "paragraph_open" ||
+      t.type === "heading_open" ||
+      t.type === "code_block" ||
+      t.type === "html_block" ||
+      t.type === "table_open" ||
+      t.type === "hr"
+    ) {
+      let endExclusive = t.map[1];
+      const closeMap: Record<string, string> = {
+        paragraph_open: "paragraph_close",
+        heading_open: "heading_close",
+        table_open: "table_close",
+      };
+      const closeType = closeMap[t.type];
+      if (closeType) {
+        for (let j = i + 1; j < tokens.length; j++) {
+          if (tokens[j].type === closeType && tokens[j].map) {
+            endExclusive = tokens[j].map[1];
+            break;
+          }
+        }
+      }
+      topBlocks.push({
+        type: t.type.replace(/_open$/, ""),
+        startLine: t.map[0],
+        endLineExclusive: endExclusive,
+      });
+    }
+  }
+
+  const regionEndExclusive = regionEnd + 1;
+  const inside = topBlocks.filter(
+    (b) => b.startLine >= regionStart && b.endLineExclusive <= regionEndExclusive
+  );
+
+  if (inside.length !== 1) return {};
+  const single = inside[0];
+  if (single.startLine !== regionStart || single.endLineExclusive !== regionEndExclusive) {
+    return {};
+  }
+  if (single.type === "fence") return { kind: "fenced", fenceMarkup: single.markup };
+  if (single.type === "blockquote") return { kind: "blockquote" };
+  return {};
 }
 
 /**
- * Compare-and-swap replacement of a draft's body. Returns the new full markdown
- * if the original body matches what's currently on disk for the given draft
- * index, otherwise returns a reason. Caller writes the result to disk.
+ * Compare-and-swap replacement of a draft's editable inner content. Returns
+ * the new full markdown if the original body matches what's currently on disk
+ * for the given draft index, otherwise returns a reason. Caller writes the
+ * result to disk.
+ *
+ * Kind-aware behavior:
+ *   - "fenced"        — replaces lines between the open and close fences.
+ *                       The user edits inner content; the fence markers stay.
+ *   - "blockquote"    — re-prefixes newBody lines with `> ` to keep the
+ *                       blockquote shape.
+ *   - "multi-segment" — replaces the entire region verbatim. The user edits
+ *                       the raw markdown of the body region as-is.
  */
 export function replaceDraftBody(
   raw: string,
@@ -217,10 +459,13 @@ export function replaceDraftBody(
   }
 
   const lines = raw.split("\n");
-  const newBodyLines =
-    draft.kind === "fenced"
-      ? newBody.split("\n")
-      : newBody.split("\n").map((l) => (l.length === 0 ? ">" : "> " + l));
+
+  let newBodyLines: string[];
+  if (draft.kind === "blockquote") {
+    newBodyLines = newBody.split("\n").map((l) => (l.length === 0 ? ">" : "> " + l));
+  } else {
+    newBodyLines = newBody.split("\n");
+  }
 
   const before = lines.slice(0, draft.bodyStartLine);
   // bodyEndLine can be < bodyStartLine for empty bodies; slice handles that gracefully.
@@ -231,8 +476,12 @@ export function replaceDraftBody(
 }
 
 /**
- * Append a `**Sent:** ...` marker after the draft body. Idempotent: if the
- * draft is already marked sent, returns "already-sent" without rewriting.
+ * Append a `**Sent:** ...` marker after the draft body. Idempotent.
+ *
+ * The marker is inserted at regionEndLine + 1 — i.e. directly after the last
+ * line of the body region (which is the close fence for "fenced", the last
+ * `>` line for "blockquote", or the last content line for "multi-segment").
+ * A leading blank line is inserted unless one is already present.
  */
 export function markDraftAsSent(
   raw: string,
@@ -247,17 +496,11 @@ export function markDraftAsSent(
   if (draft.alreadySent) return { ok: false, reason: "already-sent" };
 
   const lines = raw.split("\n");
-
-  // Insertion line: immediately after the body closes (and its trailing fence
-  // for fenced drafts).
-  const insertAt =
-    draft.kind === "fenced" ? draft.bodyEndLine + 2 : draft.bodyEndLine + 1;
+  const insertAt = draft.regionEndLine + 1;
 
   const permalinkPart = meta.permalink ? ` ${meta.permalink}` : "";
   const sentLine = `**Sent:** ${meta.sentAtIso} (TS=${meta.ts})${permalinkPart}`;
 
-  // Insert with a blank line before, unless the line already at `insertAt` is
-  // blank (avoid stacking blank lines).
   const needsLeadingBlank = (lines[insertAt - 1] ?? "").trim() !== "";
   const block = needsLeadingBlank ? ["", sentLine] : [sentLine];
 
@@ -265,47 +508,21 @@ export function markDraftAsSent(
   return { ok: true, newRaw: newLines.join("\n") };
 }
 
+function parseSentTimestamp(s: string): string | undefined {
+  const isoMatch = s.match(/(\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2})?(?:\s*\w{2,5})?)/);
+  return isoMatch ? isoMatch[1].trim() : undefined;
+}
+
+function parseSentTs(s: string): string | undefined {
+  const m = s.match(/TS\s*[=:]\s*([\d.]+)/i);
+  return m ? m[1] : undefined;
+}
+
+function parseSentPermalink(s: string): string | undefined {
+  const m = s.match(/(https?:\/\/[^\s)]+)/);
+  return m ? m[1] : undefined;
+}
+
 function canonicalize(s: string): string {
   return s.replace(/\r\n/g, "\n").replace(/\s+$/g, "").replace(/[ \t]+\n/g, "\n");
-}
-
-function stripTrailingNewline(s: string): string {
-  return s.endsWith("\n") ? s.slice(0, -1) : s;
-}
-
-function findCloseFenceLine(
-  lines: string[],
-  openLine: number,
-  markup: string,
-  endExclusive: number
-): number {
-  // Walk forward from openLine + 1 looking for a line that begins with the same
-  // fence character as `markup` (length >= markup length). Bound by endExclusive
-  // as a safety cap.
-  if (!markup) return endExclusive - 1;
-  const fenceChar = markup[0];
-  const minLen = markup.length;
-  for (let i = openLine + 1; i < Math.min(lines.length, endExclusive); i++) {
-    const trimmed = lines[i].replace(/^\s{0,3}/, "");
-    if (
-      trimmed.startsWith(fenceChar.repeat(minLen)) &&
-      /^[`~]+\s*$/.test(trimmed)
-    ) {
-      return i;
-    }
-  }
-  // Fall back to the last line in range if no explicit close found (unclosed fence).
-  return Math.max(openLine + 1, endExclusive - 1);
-}
-
-function findMatchingBlockquoteClose(tokens: ReturnType<typeof md.parse>, openIdx: number): number {
-  let depth = 1;
-  for (let j = openIdx + 1; j < tokens.length; j++) {
-    if (tokens[j].type === "blockquote_open") depth++;
-    if (tokens[j].type === "blockquote_close") {
-      depth--;
-      if (depth === 0) return j;
-    }
-  }
-  return -1;
 }
