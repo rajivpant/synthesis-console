@@ -24,6 +24,25 @@ if (config.sources.length === 0) {
 
 const app = new Hono();
 
+// Disable browser caching for all dynamic responses.
+//
+// The console reads files from disk on every request — by design, this is a
+// local tool whose only job is to reflect the current state of source files.
+// Any browser cache is by definition stale. Plans, projects, and lessons all
+// change throughout the day (manual edits, daily-rituals, slack-sync, etc.);
+// even a few seconds of cached HTML can cause the user to act on obsolete
+// information. Force-reload should not be required to see fresh data.
+//
+// Static assets (/style.css) ship from disk via serveStatic and may cache
+// normally — they only change with a redeploy.
+app.use("*", async (c, next) => {
+  await next();
+  if (c.req.path === "/style.css") return;
+  c.res.headers.set("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
+  c.res.headers.set("Pragma", "no-cache");
+  c.res.headers.set("Expires", "0");
+});
+
 app.use("/style.css", serveStatic({ root: "./public" }));
 
 app.get("/", (c) => c.redirect("/projects"));
