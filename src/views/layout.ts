@@ -10,6 +10,14 @@ export function layout(opts: {
   activeSourceNames: string[];
   currentPath?: string;
   demoMode: boolean;
+  /**
+   * v0.9+: when true, the `<main>` container uses the wider layout
+   * (`.container-wide`, ~1320px max). The cockpit's three-column shell
+   * needs the extra horizontal space; other pages (`/projects`, `/initiatives`,
+   * `/lessons`, `/plans` calendar) should leave this off so they keep
+   * Pico's standard `.container` width.
+   */
+  wide?: boolean;
 }): string {
   const visibleSources = opts.demoMode
     ? opts.sources.filter((s) => s.demo === true)
@@ -51,7 +59,7 @@ export function layout(opts: {
       </ul>
     </nav>
   </header>
-  <main class="container">
+  <main class="container${opts.wide ? " container-wide" : ""}">
     ${opts.content}
   </main>
   <footer class="container">

@@ -293,6 +293,38 @@ Unrecognized H2 headings (3 distinct):
 
 Stable catch-alls like `Session Metrics` and `Background Agent Demo` are intentional and stay in `other`. New stragglers are the drift signal worth investigating.
 
+## Three-column shell (v0.9.0+)
+
+v0.9 reorganizes the cockpit into three columns at desktop widths:
+
+```
+┌──────────┬──────────────────────────────────┬────────────────────┐
+│ ~220px   │ MAIN COLUMN (1fr, ~880px @ 1320) │ ~270px             │
+│          │                                  │                    │
+│ Calendar │ - Date header + status           │ Today's Wins       │
+│ (mini    │ - Progress bar                   │ (done tasks +      │
+│  month)  │ - Counts · chips · find · nav    │  sent drafts +     │
+│          │ - MUST DO TODAY (decisions + P0) │  explicit          │
+│ Active   │ - DO THIS WEEK (P1/P2/watch/...) │  completed/sent)   │
+│ Projects │ - DRAFTS (active + sent cards)   │                    │
+│ list     │ - MORE collapsibles              │ Waiting On         │
+│          │ - Full markdown                  │ (waiting kind)     │
+└──────────┴──────────────────────────────────┴────────────────────┘
+```
+
+The center column is the action surface — high-frequency reads. Sidebars hold low-frequency reference (calendar/projects on the left, status/done items on the right). Color through left-border accents on cards rather than heading sizes.
+
+**Information sources for sidebars:**
+
+- **Mini calendar** — month containing the current date, with dates that have plans linked. Renders for any source with a `plans_dir` declared.
+- **Active projects** — the source's projects (`projects/index.yaml`), filtered to `active`, `ongoing`, `new`, or `paused` status. Empty when the source has no projects index.
+- **Today's Wins** — done priority tasks + sent drafts + explicit `## Completed today` / `## Sent messages` sections, deduplicated, capped at 12.
+- **Waiting On** — `## Waiting on others` sections, capped at 12.
+
+**Mobile collapse.** Below 1024px the three columns collapse to one. Sidebars render as `<details>` blocks above the main content — `open` by default, user-collapsible. CSS forces them open at desktop widths via `summary { display: none }` on the same elements, so the server emits one HTML tree and CSS adapts. No JS state, no broken `Cmd+F` (the existing find handler already opens ancestor `<details>` for matched content).
+
+**Other pages unaffected.** The three-column shell applies only to `/plans/:source/:date` via the layout shell's new `wide` flag. `/projects`, `/initiatives`, `/lessons`, `/plans` calendar list keep their existing single-column layout.
+
 ## What the cockpit doesn't do
 
 By design:

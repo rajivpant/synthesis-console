@@ -10,7 +10,7 @@ export interface PlanEntry {
 
 const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
-function getDayOfWeek(dateStr: string): string {
+export function getDayOfWeek(dateStr: string): string {
   const [y, m, d] = dateStr.split("-").map(Number);
   const date = new Date(y, m - 1, d);
   return DAYS[date.getDay()];
@@ -90,7 +90,7 @@ export function planListView(opts: {
   `;
 }
 
-function buildCalendarGrid(
+export function buildCalendarGrid(
   year: number,
   month: number,
   plans: PlanEntry[],

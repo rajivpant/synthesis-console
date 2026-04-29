@@ -6,6 +6,7 @@ import { getPlansPath, findSource, getSlackToken } from "../config.js";
 import { readAndRenderPlanMarkdown, readAndRenderPlanForCockpit } from "../parsers/markdown.js";
 import { replaceDraftBody, findDraftBlocks, markDraftAsSent } from "../parsers/draft-blocks.js";
 import { recordDecision, markTaskDone, unmarkTaskDone } from "../parsers/plan-mutations.js";
+import { loadProjectsFromSources } from "../parsers/yaml.js";
 import { loadSlackDirectory } from "../parsers/slack-directory.js";
 import { resolveMentions, listResolvedMentions } from "../parsers/slack-mentions.js";
 import { postSlackMessage } from "../integrations/slack-send.js";
@@ -27,6 +28,21 @@ function parsePlanFilename(filename: string, sourceName: string): PlanEntry | nu
   const [y, m, d] = date.split("-").map(Number);
   const dayOfWeek = DAYS[new Date(y, m - 1, d).getDay()];
   return { date, filename, dayOfWeek, source: sourceName };
+}
+
+/**
+ * Whether a plan's date is within `n` days of the reference date (inclusive).
+ * Used to filter the calendar window for the v0.9 left sidebar — keep the
+ * mini calendar's plan list bounded to roughly prev/current/next month around
+ * the date being viewed, not the entire archive.
+ */
+function withinDays(planDate: string, refDate: string, n: number): boolean {
+  const a = Date.parse(planDate + "T00:00:00Z");
+  const b = Date.parse(refDate + "T00:00:00Z");
+  if (!Number.isFinite(a) || !Number.isFinite(b)) return false;
+  const diffMs = Math.abs(a - b);
+  const oneDay = 86_400_000;
+  return diffMs / oneDay <= n;
 }
 
 function loadPlansFromSource(src: Source): PlanEntry[] {
@@ -160,10 +176,18 @@ export function planRoutes(config: ConsoleConfig) {
     const hasRecognized = cockpitBundle.sections.some(
       (s) => s.kind !== "header" && s.kind !== "other"
     );
+
+    // v0.9.0: load source's projects + ±60-day calendar window for sidebars.
+    // `loadProjectsFromSources([src])` returns [] when the source has no
+    // `projects_dir` or no `index.yaml` — sidebar handles that empty case.
+    const projects = loadProjectsFromSources([src]);
+    const calendarPlans = allPlans.filter((p) => withinDays(p.date, date, 60));
+
     const content = hasRecognized
       ? planCockpitView({
           date,
           sourceName: src.name,
+          sourceDisplayName: src.display_name,
           sections: cockpitBundle.sections,
           draftsHtml: cockpitBundle.draftsHtml,
           fullMarkdownHtml: cockpitBundle.fullHtml,
@@ -172,6 +196,8 @@ export function planRoutes(config: ConsoleConfig) {
           nextDate,
           fileMtimeMs: cockpitBundle.mtimeMs,
           editable: !src.demo,
+          projects,
+          plansForCalendar: calendarPlans,
         })
       : planDetailView({
           date,
@@ -189,6 +215,11 @@ export function planRoutes(config: ConsoleConfig) {
         activeSourceNames: active.map((s) => s.name),
         currentPath: `/plans/${src.name}/${date}`,
         demoMode: config.demoMode,
+        // The cockpit shell uses the wider container so the three columns
+        // have room. The legacy planDetailView fallback stays at standard
+        // width — its single-column markdown render doesn't need extra
+        // horizontal space.
+        wide: hasRecognized,
       })
     );
   });

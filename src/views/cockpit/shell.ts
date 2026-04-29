@@ -1,0 +1,96 @@
+/**
+ * Three-column shell for the v0.9 cockpit.
+ *
+ * Composes:
+ *   - cockpit-shell-aside-left  (calendar + projects)
+ *   - cockpit-main-column       (existing region order with MUST DO / DO THIS WEEK split)
+ *   - cockpit-shell-aside-right (wins + waiting on)
+ *
+ * Wraps the whole thing in a `<div class="cockpit-view cockpit-shell">` so:
+ *   - existing JS handlers (find, filter, decision pick, task check, mtime
+ *     poll) keep working — they look up `.cockpit-view` and read
+ *     data-source / data-date / data-editable / data-mtime-ms unchanged.
+ *   - new layout primitives apply via the `.cockpit-shell` modifier.
+ *
+ * Below 1024px viewport, CSS collapses the grid to single column and the
+ * `<details>` wrappers in each sidebar become user-collapsible. Above
+ * 1024px the same `<details>` are forced open via CSS.
+ */
+import { escapeAttr, escapeHtml } from "../../utils.js";
+import { renderMainColumn } from "./main-column.js";
+import { renderSidebarLeft } from "./sidebar-left.js";
+import { renderSidebarRight } from "./sidebar-right.js";
+import { getDayOfWeek } from "./cards.js";
+import type { PlanSection } from "../../parsers/plan-sections.js";
+import type { PlanEntry } from "../plan.js";
+import type { ProjectWithSource } from "../../parsers/yaml.js";
+
+export interface PlanCockpitShellOpts {
+  date: string;
+  sourceName: string;
+  sourceDisplayName?: string;
+  sections: PlanSection[];
+  draftsHtml: string;
+  fullMarkdownHtml: string;
+  directoryIslandHtml: string;
+  prevDate?: string;
+  nextDate?: string;
+  fileMtimeMs: number;
+  editable: boolean;
+  /** Active source's projects for the left sidebar. Empty when source has no projects index. */
+  projects?: ProjectWithSource[];
+  /** Plans within ±60 days of `date` for the mini calendar. */
+  plansForCalendar?: PlanEntry[];
+}
+
+export function planCockpitShellView(opts: PlanCockpitShellOpts): string {
+  const dayOfWeek = getDayOfWeek(opts.date);
+  const projects = opts.projects ?? [];
+  const plansForCalendar = opts.plansForCalendar ?? [];
+
+  const breadcrumbHtml = `
+    <nav aria-label="breadcrumb" class="cockpit-breadcrumb">
+      <ul>
+        <li><a href="/plans">Daily Plans</a></li>
+        <li><span class="source-badge">${escapeHtml(opts.sourceName)}</span></li>
+        <li>${escapeHtml(dayOfWeek)}, ${escapeHtml(opts.date)}</li>
+      </ul>
+    </nav>
+  `;
+
+  const leftSidebarHtml = renderSidebarLeft({
+    sourceName: opts.sourceName,
+    sourceDisplayName: opts.sourceDisplayName,
+    projects,
+    plansForCalendar,
+    currentDate: opts.date,
+  });
+
+  const mainColumnHtml = renderMainColumn({
+    date: opts.date,
+    sourceName: opts.sourceName,
+    sections: opts.sections,
+    draftsHtml: opts.draftsHtml,
+    fullMarkdownHtml: opts.fullMarkdownHtml,
+    prevDate: opts.prevDate,
+    nextDate: opts.nextDate,
+    fileMtimeMs: opts.fileMtimeMs,
+    editable: opts.editable,
+  });
+
+  const rightSidebarHtml = renderSidebarRight({
+    sections: opts.sections,
+  });
+
+  return `
+    <div class="cockpit-view cockpit-shell" data-source="${escapeAttr(opts.sourceName)}" data-date="${escapeAttr(opts.date)}" data-editable="${opts.editable ? "true" : "false"}" data-mtime-ms="${opts.fileMtimeMs}">
+      ${breadcrumbHtml}
+      <div class="cockpit-shell-grid">
+        ${leftSidebarHtml}
+        ${mainColumnHtml}
+        ${rightSidebarHtml}
+      </div>
+      ${opts.directoryIslandHtml || ""}
+    </div>
+  `;
+}

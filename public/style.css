@@ -1964,3 +1964,365 @@ body[data-cockpit-focus="true"] .cockpit-bucket:first-of-type {
     font-size: 0.8em;
   }
 }
+
+/* =====================================================================
+   v0.9.0 — Three-column cockpit shell
+   ===================================================================== */
+
+/*
+ * Wide layout. The cockpit needs more horizontal real estate than the
+ * default Pico container max-width. The .container-wide variant is opt-in
+ * via the layout()'s `wide` flag — only set by the cockpit route.
+ */
+.container.container-wide {
+  max-width: 1320px;
+}
+
+/* New cockpit-shell tokens (extend the existing .cockpit-view block). */
+.cockpit-view {
+  --cockpit-sidebar-bg: #faf8f0;
+  --cockpit-sidebar-pad: 0.85em;
+  --cockpit-row-height: 28px;
+  --cockpit-aside-gap: 0.4em;
+}
+
+/*
+ * Three-column grid. 200px / minmax(0, 1fr) / 250px is the default at
+ * desktop widths. The minmax(0, 1fr) on the main column defeats grid
+ * blow-out from long <pre> content (which would otherwise force the
+ * track to its content width and break the layout).
+ *
+ * `align-items: start` keeps each column anchored to the top so the
+ * sticky sidebars work. `gap` is between columns.
+ */
+.cockpit-shell .cockpit-shell-grid {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr) 270px;
+  gap: 1.5em;
+  align-items: start;
+  margin-top: 0.75em;
+}
+
+/* Main column container resets — keep min-width 0 so flex/grid children
+ * don't blow out the track. Long unwrappable content (URLs, code blocks)
+ * inside the main column scrolls within the pre, not the page. */
+.cockpit-main-column {
+  min-width: 0;
+}
+
+.cockpit-shell-grid > * {
+  min-width: 0;
+}
+
+.cockpit-main-column pre,
+.cockpit-main-column .rendered-markdown pre {
+  overflow-x: auto;
+  max-width: 100%;
+}
+
+.cockpit-main-column .rendered-markdown {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+/*
+ * Sticky sidebars. They scroll independently when content exceeds the
+ * viewport height, but otherwise stay anchored as the user scrolls the
+ * main column.
+ */
+.cockpit-shell-aside-left,
+.cockpit-shell-aside-right {
+  position: sticky;
+  top: 1em;
+  align-self: start;
+  max-height: calc(100vh - 2em);
+  overflow-y: auto;
+  font-size: 0.92em;
+}
+
+/* Light bordered card look for each sidebar; calmer than full surface. */
+.cockpit-aside-collapsible {
+  background: var(--cockpit-sidebar-bg);
+  border: 1px solid var(--cockpit-border);
+  border-radius: 8px;
+  padding: 0.5em 0.75em;
+}
+
+.cockpit-aside-content {
+  display: flex;
+  flex-direction: column;
+  gap: 1em;
+}
+
+/* Section header within a sidebar */
+.cockpit-aside-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5em;
+}
+
+.cockpit-aside-heading {
+  font-size: 0.85em;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--cockpit-context);
+  margin: 0;
+  padding-bottom: 0.25em;
+  border-bottom: 1px solid var(--cockpit-border-soft);
+}
+
+/* Sidebar item rows — calendar dates, project rows, wins, waiting-on. */
+.cockpit-aside-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.cockpit-aside-row {
+  display: flex;
+  align-items: center;
+  gap: var(--cockpit-aside-gap);
+  min-height: var(--cockpit-row-height);
+  padding: 0.15em 0;
+  font-size: 0.92em;
+  line-height: 1.35;
+}
+
+.cockpit-aside-row .cockpit-aside-link {
+  display: flex;
+  align-items: center;
+  gap: var(--cockpit-aside-gap);
+  flex: 1;
+  min-width: 0;
+  text-decoration: none;
+  color: inherit;
+}
+
+.cockpit-aside-row .cockpit-aside-link:hover {
+  color: var(--cockpit-action);
+}
+
+.cockpit-aside-text {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cockpit-aside-suffix {
+  flex-shrink: 0;
+  color: var(--cockpit-muted);
+  font-size: 0.85em;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Status dot — driven by tone modifier (matches palette). */
+.cockpit-aside-dot {
+  flex-shrink: 0;
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--cockpit-context);
+}
+.cockpit-aside-dot-critical { background: var(--cockpit-critical); }
+.cockpit-aside-dot-action   { background: var(--cockpit-action); }
+.cockpit-aside-dot-done     { background: var(--cockpit-done); }
+.cockpit-aside-dot-waiting  { background: var(--cockpit-waiting); }
+.cockpit-aside-dot-context  { background: var(--cockpit-context); }
+
+/* Empty state for sidebar widgets. */
+.cockpit-aside-empty {
+  font-size: 0.88em;
+  color: var(--cockpit-muted);
+  font-style: italic;
+  margin: 0.25em 0 0;
+}
+
+/*
+ * Mini calendar — overrides the `.calendar-grid` table from plan.ts to
+ * fit the narrower sidebar column. Tabular-nums for predictable date
+ * column widths; smaller font; tight cell padding.
+ */
+.cockpit-mini-cal .calendar-grid {
+  font-size: 0.78em;
+  font-variant-numeric: tabular-nums;
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.cockpit-mini-cal .calendar-grid th {
+  font-weight: 500;
+  color: var(--cockpit-muted);
+  padding: 0.15em 0.1em;
+  border: none;
+}
+
+.cockpit-mini-cal .calendar-grid td {
+  padding: 0.2em 0.05em;
+  text-align: center;
+  border: none;
+  color: var(--cockpit-text-soft);
+}
+
+.cockpit-mini-cal .calendar-grid td.cal-today {
+  background: var(--cockpit-action-soft);
+  border-radius: 4px;
+  color: var(--cockpit-action);
+  font-weight: 600;
+}
+
+.cockpit-mini-cal .calendar-grid td.cal-has-plan a {
+  color: var(--cockpit-action);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.cockpit-mini-cal .calendar-grid td.cal-has-plan a:hover {
+  color: var(--cockpit-critical);
+}
+
+.cockpit-mini-cal .calendar-grid td.cal-empty {
+  background: transparent;
+}
+
+/*
+ * Project list inside the left sidebar. List items are sized at
+ * --cockpit-row-height for predictable density.
+ */
+.cockpit-project-list .cockpit-aside-row {
+  border-bottom: 1px dashed var(--cockpit-border-soft);
+}
+
+.cockpit-project-list .cockpit-aside-row:last-child {
+  border-bottom: none;
+}
+
+/*
+ * Progress bar in the main column header. The filled portion is rendered
+ * via a CSS gradient driven by the `--pct` custom property set inline.
+ */
+.cockpit-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25em;
+  margin-top: 0.5em;
+  margin-bottom: 0.5em;
+}
+
+.cockpit-progress-bar {
+  height: 4px;
+  border-radius: 2px;
+  background: linear-gradient(
+    to right,
+    var(--cockpit-done) 0%,
+    var(--cockpit-done) calc(var(--pct, 0) * 1%),
+    var(--cockpit-border-soft) calc(var(--pct, 0) * 1%),
+    var(--cockpit-border-soft) 100%
+  );
+}
+
+.cockpit-progress-label {
+  font-size: 0.85em;
+  color: var(--cockpit-muted);
+}
+
+/*
+ * MUST DO TODAY (decisions + P0 tasks) keeps the existing
+ * .cockpit-region-needs styling. The .cockpit-region-must-do modifier
+ * just adds a subtle background tint when there's content, leaving the
+ * empty state visually quiet.
+ */
+.cockpit-region-must-do:not(.cockpit-region-empty) {
+  background: linear-gradient(
+    to bottom,
+    color-mix(in srgb, var(--cockpit-critical-soft) 60%, transparent),
+    transparent 80%
+  );
+  padding-bottom: 0.5em;
+}
+
+.cockpit-region-this-week {
+  margin-top: 1em;
+}
+
+/*
+ * Compact task row variant for tasks promoted into MUST DO TODAY (no
+ * bucket surround, tighter spacing). Inherits the base .cockpit-task
+ * styling otherwise.
+ */
+.cockpit-task-compact {
+  border-bottom: none;
+  padding: 0.25em 0;
+}
+
+/*
+ * Mobile collapse — three columns become one at 1024px and below.
+ * Sidebars stop being sticky and become flow-laid <details> blocks
+ * above and below the main column.
+ */
+@media (max-width: 1023px) {
+  .cockpit-shell .cockpit-shell-grid {
+    grid-template-columns: 1fr;
+    gap: 1em;
+  }
+
+  .cockpit-shell-aside-left,
+  .cockpit-shell-aside-right {
+    position: static;
+    max-height: none;
+    overflow-y: visible;
+  }
+
+  /* On mobile the <details> wrappers are user-collapsible. They're
+   * server-rendered with `open` attribute, so first paint shows them
+   * expanded; the user can collapse to save space. */
+  .cockpit-aside-collapsible > .cockpit-aside-summary {
+    display: list-item;
+    cursor: pointer;
+    padding: 0.4em 0;
+    font-weight: 600;
+    color: var(--cockpit-context);
+  }
+}
+
+/*
+ * Desktop ≥1024px: force the sidebars to behave as static panels — the
+ * <details> summary is hidden and the content is always visible. This
+ * lets us emit one HTML tree from the server (with `<details open>`) and
+ * have CSS adapt for both viewports.
+ */
+@media (min-width: 1024px) {
+  .cockpit-aside-collapsible > .cockpit-aside-summary {
+    display: none;
+  }
+  .cockpit-aside-collapsible > .cockpit-aside-content {
+    display: flex !important;
+  }
+  .cockpit-aside-collapsible {
+    /* Slimmer panel look at desktop — already inside a card-like sidebar. */
+    border: none;
+    background: transparent;
+    padding: 0;
+  }
+}
+
+/*
+ * Focus filter in the v0.9 layout. The existing v0.8 selectors targeted
+ * `.cockpit-region-today .cockpit-bucket:nth-of-type(n + 2)` to hide
+ * non-first buckets. With the MUST DO / DO THIS WEEK split, focus mode
+ * now hides DO THIS WEEK, MORE collapsibles, and the header — leaving
+ * MUST DO TODAY and DRAFTS visible.
+ */
+body[data-cockpit-focus="true"] .cockpit-shell .cockpit-region-this-week,
+body[data-cockpit-focus="true"] .cockpit-shell .cockpit-region-more,
+body[data-cockpit-focus="true"] .cockpit-shell .cockpit-region-collapsibles,
+body[data-cockpit-focus="true"] .cockpit-shell .cockpit-shell-aside-left,
+body[data-cockpit-focus="true"] .cockpit-shell .cockpit-shell-aside-right,
+body[data-cockpit-focus="true"] .cockpit-shell .cockpit-header {
+  display: none;
+}

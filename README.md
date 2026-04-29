@@ -44,6 +44,16 @@ Synthesis engineering is a discipline for structured human-AI collaboration — 
 
 ![Plan detail with mention pills and action bar](screenshots/plan-detail.png)
 
+## What v0.9+ adds for daily plans
+
+The plan detail view becomes a **three-column cockpit**: calendar + active projects on the left, today's actionable work in the center, today's wins + waiting-on others on the right. Color through left-border accents on cards rather than oversized headings; compact rows; sent/done items collapse by default. At <1024px the columns collapse to a single column with sidebars rendered as `<details>` blocks above the main content.
+
+The previous single-column cockpit (v0.8) is the source for the typed sections; v0.9 reorganizes the rendering, not the underlying model. Existing CSS and JS handlers (decision pick, task checkbox, filter chips, find, mtime auto-refresh) work unchanged.
+
+- **Left sidebar** — mini month calendar with the current date highlighted and other dates that have plans linked; active projects list (filtered to active / ongoing / new / paused statuses) with color-coded status dots.
+- **Main column** — date header, progress bar (X / Y tasks done), counts strip (decisions / tasks / drafts / sent today), filter chips · find · Rollover · prev/next nav, then `MUST DO TODAY` (open decisions + P0 tasks promoted), `DO THIS WEEK` (P1 / P2 / watch / stale buckets), `DRAFTS` (active + sent cards from v0.8.5–v0.8.7), `MORE` collapsibles (briefing / standup / PR queue / sync state / other), and the Full markdown escape hatch.
+- **Right sidebar** — Today's Wins (done priority tasks + sent drafts + explicit `## Completed today` / `## Sent messages` sections, deduplicated), Waiting On (`## Waiting on others` sections).
+
 ## What v0.8+ adds for daily plans
 
 The plan detail view becomes a **cockpit**: a typed, sectioned rendering that surfaces what needs your attention now, with action affordances per section type.
