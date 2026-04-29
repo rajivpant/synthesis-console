@@ -254,11 +254,33 @@ export function findDraftBlocks(raw: string): DraftBlock[] {
     };
 
     if (sentMarkerParagraph) {
+      // Canonical form (synthesis-slack-sync v3.2.0+, synthesis-console
+      // markDraftAsSent): a `**Sent:**` paragraph below the body.
       const tail = sentMarkerParagraph.text.replace(SENT_INLINE_RE, "").trim();
       draft.alreadySent = true;
       draft.sentAt = parseSentTimestamp(tail);
       draft.sentTs = parseSentTs(tail);
       draft.sentPermalink = parseSentPermalink(tail);
+    } else if (currentSectionHeading !== undefined) {
+      // Legacy form (pre-v3.2.0 synthesis-slack-sync): the SENT marker is
+      // baked into the H3 heading text. Examples seen in real plans:
+      //   ### ~~Draft N: title~~ ✅ SENT by Rajiv at Thu Apr 2 6:16 PM EDT in #channel
+      //   ### Draft N: title (sent)
+      //   ### ~~Draft N: title~~
+      // Treat any of these signals as sent — false positives are unlikely
+      // because uppercase SENT and full-title strikethrough are unusual in
+      // active draft headings.
+      const h3Line = lines[currentSectionHeading] ?? "";
+      const h3IndicatesSent = /\bSENT\b/.test(h3Line) || /~~[^\n]+~~/.test(h3Line);
+      if (h3IndicatesSent) {
+        draft.alreadySent = true;
+        // Best-effort metadata extraction from the H3 tail. Human-readable
+        // dates ("Thu Apr 2 6:16 PM EDT") won't match the ISO regex; that's
+        // OK — the sent badge will render as just "Sent" without a time.
+        draft.sentAt = parseSentTimestamp(h3Line);
+        draft.sentTs = parseSentTs(h3Line);
+        draft.sentPermalink = parseSentPermalink(h3Line);
+      }
     }
 
     drafts.push(draft);

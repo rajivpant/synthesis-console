@@ -931,22 +931,66 @@ nav a.active {
    * siblings of the section. The wrapper is structural, not decorative. */
 }
 
+/*
+ * Sent state (v0.8.6+): opacity is enough.
+ * Earlier versions added line-through on every pre/blockquote/p inside the
+ * sent region. On dark code backgrounds the strike was barely visible; on
+ * light prose backgrounds it was visually heavy. Dimming the whole region
+ * to 0.55 is the cleanest signal — and the producer's strikethrough on the
+ * H3 title (when present) handles the title side.
+ */
 .draft-body-region.draft-sent-region {
-  opacity: 0.75;
-}
-
-.draft-body-region.draft-sent-region pre,
-.draft-body-region.draft-sent-region blockquote,
-.draft-body-region.draft-sent-region p {
-  text-decoration: line-through;
-  text-decoration-thickness: 1px;
-  text-decoration-color: rgba(75, 85, 99, 0.5);
+  opacity: 0.55;
 }
 
 /* Multi-segment drafts: separate the visual blocks subtly so the user can
  * see that fences and prose alternate rather than running together. */
 .draft-body-region.draft-body-multi-segment > * + * {
   margin-top: 0.5rem;
+}
+
+/*
+ * v0.8.6 typography pass for the DRAFTS region.
+ *
+ * Prior to v0.8.6, the per-draft H3 inherited Pico's default heading
+ * typography (~1.75rem, very bold). When the producer (synthesis-slack-sync
+ * pre-v3.2.0) jammed full SENT metadata into the H3 itself, the heading
+ * would wrap to four lines of giant strikethrough — visually punishing.
+ * v3.2.0 moved that metadata to a separate **Sent:** paragraph; this CSS
+ * shrinks the H3 itself so even legacy plans on disk read calmly.
+ */
+.cockpit-drafts-body h3 {
+  font-size: 1.05rem;
+  font-weight: 600;
+  line-height: 1.4;
+  margin-top: 1.5rem;
+  margin-bottom: 0.5rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--cockpit-border);
+}
+
+.cockpit-drafts-body > h3:first-child,
+.cockpit-drafts-body .draft-notice + h3 {
+  border-top: none;
+  padding-top: 0;
+  margin-top: 0;
+}
+
+.cockpit-drafts-body p {
+  margin-bottom: 0.5rem;
+}
+
+.cockpit-drafts-body pre {
+  font-size: 0.85rem;
+  line-height: 1.45;
+  padding: 0.75rem 0.9rem;
+  margin: 0.5rem 0;
+}
+
+.cockpit-drafts-body blockquote {
+  font-size: 0.95rem;
+  margin: 0.5rem 0;
+  padding: 0.5rem 0.9rem;
 }
 
 /* ---- Send-to-Slack confirmation modal ---- */
