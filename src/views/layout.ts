@@ -28,6 +28,13 @@ export function layout(opts: {
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <!-- The console reads files fresh on every request. Never cache the HTML —
+       any stored copy is by definition stale. HTTP Cache-Control headers
+       (no-store, no-cache) are the primary defense; these meta tags are
+       belt-and-suspenders in case headers are stripped by an intermediary. -->
+  <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate, max-age=0">
+  <meta http-equiv="Pragma" content="no-cache">
+  <meta http-equiv="Expires" content="0">
   <title>${escapeHtml(opts.title)} - Synthesis Console</title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
   <link rel="stylesheet" href="/style.css">
