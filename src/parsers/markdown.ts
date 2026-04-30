@@ -24,6 +24,31 @@ const md = new MarkdownIt({
 // Enable task list checkboxes (- [x] and - [ ])
 md.use(taskListPlugin);
 
+// External links: open in new tab so the daily plan never gets clobbered.
+// Inline markdown links to Slack (timestamped permalinks like
+// `[1:24 PM EDT](https://...slack.com/.../p17774...)`), GitHub, Jira, and
+// other off-app URLs all need this treatment. The cockpit-emitted slack
+// pills already set target="_blank" explicitly; this rule covers the
+// markdown-source-authored anchors that markdown-it would otherwise emit
+// as plain `<a href="...">label</a>`.
+//
+// External = anything starting with `http://` or `https://`. Internal
+// links (anchors, relative paths) are unchanged so in-page navigation
+// still works.
+const defaultLinkOpen = md.renderer.rules.link_open || function (tokens, idx, options, _env, self) {
+  return self.renderToken(tokens, idx, options);
+};
+md.renderer.rules.link_open = function (tokens, idx, options, env, self) {
+  const token = tokens[idx];
+  const href = token.attrGet("href") || "";
+  if (/^https?:\/\//i.test(href)) {
+    // Don't clobber if a producer already set target.
+    if (token.attrIndex("target") < 0) token.attrSet("target", "_blank");
+    if (token.attrIndex("rel") < 0) token.attrSet("rel", "noopener");
+  }
+  return defaultLinkOpen(tokens, idx, options, env, self);
+};
+
 function taskListPlugin(md: MarkdownIt) {
   md.core.ruler.after("inline", "task-lists", (state) => {
     const tokens = state.tokens;
@@ -576,7 +601,24 @@ function augmentDraftBlocks(
     let bodyHtml = afterSlice.slice(0, bodyEndRel);
     const tail = afterSlice.slice(bodyEndRel);
 
-    // Skip the case where the body is effectively empty — no message content.
+    // v0.9.4: pair the draft FIRST, then optionally skip rendering the
+    // wrapper. The cursor must advance for every section that has a
+    // Send-to marker so the drafts[] array (built by findDraftBlocks) and
+    // the HTML sections stay in lockstep.
+    //
+    // Why this matters: synthesis-slack-sync occasionally produces drafts
+    // where the **Sent:** paragraph sits BETWEEN Send-to and the message
+    // fence (instead of after the body). The body-end regex matches
+    // **Sent:** first, leaves bodyHtml empty, and the OLD code skipped
+    // the section without advancing the cursor — every draft AFTER that
+    // section paired with the wrong drafts[] entry. The visible symptom
+    // was Copy returning the previous draft's body text.
+    const draft = drafts[draftCursor];
+    draftCursor++;
+
+    // Skip the case where the body is effectively empty — no message
+    // content to wrap. The cursor has already advanced (above), so the
+    // pairing for subsequent sections stays correct.
     if (bodyHtml.replace(/\s+/g, "").length === 0) {
       sections[i] = section;
       continue;
@@ -586,8 +628,6 @@ function augmentDraftBlocks(
     // it's metadata adjacent to the message but logically part of the draft
     // header. The wrapper still encloses everything between Send-to and the
     // body-end markers.
-    const draft = drafts[draftCursor];
-    draftCursor++;
 
     const actionsHtml = renderDraftActions(target, subject, {
       draft,

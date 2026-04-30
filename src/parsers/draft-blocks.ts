@@ -180,6 +180,21 @@ export function findDraftBlocks(raw: string): DraftBlock[] {
 
     // Body ends BEFORE the first end-marker paragraph (Sent or Grounding) in
     // the section, or at sectionEnd if none.
+    //
+    // Grounding has TWO valid forms (producer-consumer contract has been
+    // updated to ship native HTML5 collapsibles in v3.3.0+ of the
+    // synthesis-slack-sync template):
+    //   1. Legacy paragraph: `**Grounding:** ...` — caught by the
+    //      paragraphs loop below via GROUNDING_INLINE_RE.
+    //   2. v3.3.0+ native: `<details><summary>Grounding (...)</summary>`
+    //      starts an HTML block, NOT a markdown paragraph. markdown-it
+    //      tokenizes it as `html_block`, not `paragraph_open`, so the
+    //      paragraphs loop never sees it. We scan the raw lines directly
+    //      to find the opening `<details>` line and clamp regionEnd
+    //      accordingly. Without this, the body region for "multi-segment"
+    //      drafts engulfs the entire Grounding block and bodyText (the
+    //      data carried by Copy / Send) includes the verification trail
+    //      AND any `<hr>` separators before the next H3.
     let regionEnd = sectionEnd;
     let sentMarkerParagraph: ParagraphMeta | undefined;
     for (const p of paragraphs) {
@@ -192,6 +207,28 @@ export function findDraftBlocks(raw: string): DraftBlock[] {
       if (GROUNDING_INLINE_RE.test(p.text)) {
         regionEnd = Math.min(regionEnd, p.startLine - 1);
         break;
+      }
+    }
+    // Form 2 (v3.3.0+): scan raw lines for `<details><summary>Grounding...`
+    // or `<details>` followed within a few lines by `<summary>Grounding`.
+    // Use whichever opening comes first as the body-end boundary.
+    const groundingDetailsRe = /<details(?:\s[^>]*)?>\s*<summary[^>]*>\s*Grounding\b/i;
+    for (let k = regionStart; k <= sectionEnd; k++) {
+      const ln = lines[k] ?? "";
+      if (groundingDetailsRe.test(ln)) {
+        regionEnd = Math.min(regionEnd, k - 1);
+        break;
+      }
+      // Also handle the multi-line variant where <details> is on one line
+      // and <summary>Grounding... is on the next (markdown-friendly form):
+      //   <details>
+      //   <summary>Grounding (5 facts verified)</summary>
+      if (/^\s*<details(?:\s[^>]*)?>\s*$/i.test(ln)) {
+        const next = (lines[k + 1] ?? "").trim();
+        if (/^<summary[^>]*>\s*Grounding\b/i.test(next)) {
+          regionEnd = Math.min(regionEnd, k - 1);
+          break;
+        }
       }
     }
 
